@@ -1,0 +1,27 @@
+1.- Crear los namespaces:
+sudo ip netns add ns1
+sudo ip netns add ns2
+
+2.- Mover las interfaces que nos interesan a los ns creados:
+sudo ip link set eth1 netns ns1
+sudo ip link set eth2 netns ns2
+
+3.- Configurar las interfaces dentro del ns:
+sudo ip netns exec ns1 ip addr add 192.168.1.1/24
+sudo ip netns exec ns1 ip link set eth1 up
+(sudo ip netns exec ns1 ip link set lo up)
+
+sudo ip netns exec ns2 ip addr add 192.168.1.2/24
+sudo ip netns exec ns2 ip link set eth2 up
+(sudo ip netns exec ns2 ip link set lo up)
+
+4.- Configurar default gateway:
+sudo ip netns exec ns1 ip route add default via 192.168.1.1 dev eth0
+"Para cualquier destino que no tenga una ruta específica, manda los paquetes a 192.168.1.1 por la interfaz eth0.”
+
+5.- Probar la configuración:
+sudo ip netns exec ns1 ping 8.8.8.8
+sudo ip netns exec ns2 ping 8.8.8.8
+
+EXTRA: LISTAR TODAS LAS INTERFACES (INDEPENDIENTEMENTE DEL NAMESPACE)
+sudo ip -all netns exec ip a

@@ -1,0 +1,7 @@
+traffic1 -> dpdk + router
+	- enp1s0f0: 192.168.1.1
+	- enp1s0f1: 192.168.2.1
+ 
+traffic2 -> namespaces
+	- enp1s0f0: 192.168.1.2/24 (ns1)
+	- enp1s0f1: 192.168.2.2/24 (ns2)

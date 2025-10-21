@@ -1,0 +1,42 @@
+1. Edita la configuración de GRUB:
+
+Abre el archivo de configuración:
+sudo nano /etc/default/grub
+
+Busca la línea que comienza con:
+GRUB_CMDLINE_LINUX_DEFAULT=
+
+Y agrega la opción correspondiente para tu arquitectura y procesador, dependiendo de si es Intel o AMD:
+
+Para Intel agrega: intel_iommu=on
+
+Para AMD agrega: amd_iommu=on
+
+Por ejemplo, si ya tienes algo como esto: GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+
+Lo modificas a: GRUB_CMDLINE_LINUX_DEFAULT="quiet splash amd_iommu=on"
+
+
+2. Actualiza GRUB:
+
+Una vez hecho el cambio, actualiza GRUB:
+
+En sistemas basados en Debian/Ubuntu: sudo update-grub
+En sistemas basados en RHEL/Fedora: sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+
+
+3. Reinicia el sistema:
+sudo reboot
+
+4. Verifica que IOMMU esté activo:
+
+Después del reinicio, puedes verificar si IOMMU está activado correctamente:
+dmesg | grep -i iommu
+
+Deberías ver algo como:
+
+DMAR: IOMMU enabled
+
+IOMMU: Enabled
+
+AMD-Vi: IOMMU performance counters enabled
