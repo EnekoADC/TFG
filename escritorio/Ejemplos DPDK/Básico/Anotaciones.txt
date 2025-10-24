@@ -1,0 +1,7 @@
+rte_eal_init(): inicia el EAL (capa de abstracción del entorno) y configura hugepages, lcores, etc. Devuelve el número de argumentos usados para configurar el EAL (para ajustar argv después).
+RTE_LCORE_FOREACH_WORKER(lcore_id): itera sobre todos los lcores excepto el que lo lanza (suele ser main) y va guardando en lcore_id (variable definida anteriormente) el id del core que ejecuta el interior del bucle.
+rte_eal_remote_launch(func, arg, lcore_id): lanza la función "func" con los parámetros "arg" en el lcore especificado por "lcore_id". Devuelve 0 en caso de éxito.
+rte_eal_mp_wait_lcore(): bloquea el hilo principal hasta que todos los lcores terminan su tarea
+rte_eal_cleanup(): libera recursos del EAL al finalizar el programa
+
+rte_eth_dev_count_availGet the number of ports which are usable for the application.

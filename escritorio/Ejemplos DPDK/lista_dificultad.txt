@@ -1,0 +1,21 @@
+-> Básico:
+	- helloworld: Inicializa y termina dpdk. Perfecto para verificar instalación.
+	- cmdline: Interfaz de línea de comandos básica para interactuar con DPDK.
+	- bond: Ejemplo de agregación de interfaces de red (bonding).
+	- ethtool: Consulta y configuración básica de parámetros de NIC.
+	- bbdev_app: Ejemplo básico para acelerar funciones baseband.
+
+-> Intermedio:
+	- l2fwd: Reenvío de paquetes a nivel capa 2 (MAC).
+	- l3fwd: Reenvío simple de paquetes IPv4.
+	- ip_frag: Fragmentación y reensamblado de paquetes IP.
+	- flow_filtering: Ejemplo de filtros de flujo para procesamiento selectivo de paquetes.
+
+-> Avanzado:
+	- eventdev_pipeline: Pipeline basado en el modelo de eventos de DPDK.
+	- vhost: Virtualización de interfaces de red para máquinas virtuales.
+	- fips_validation: Validación de módulos criptográficos según estándares FIPS.
+
+-> Experto:
+	- distributor: Balanceo de carga y distribución de paquetes.
+	- dma: Uso avanzado de DMA para transferencia de datos.

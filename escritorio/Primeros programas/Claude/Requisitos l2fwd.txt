@@ -1,0 +1,36 @@
+- DPDK instalado
+
+- Hugepages configuradas:
+    + Comprobación de tamaño: grep Hugepagesize /proc/meminfo
+
+    + Reserva de hugepages:
+        -> Temporal (hasta reinicio):
+            echo 1024 | sudo tee /proc/sys/vm/nr_hugepages --- # Reservar 1024 páginas de 2MB = 2GB de memoria # ---
+            
+        -> Permanente:
+            1. Editar archivo "/etc/sysctl.conf" y añadir "vm.nr_hugepages=1024"
+            2. Aplicar cambios con "sudo sysctl -p"
+            
+    + Montaje de hugepages:
+        -> Temporal:
+            sudo mkdir -p /mnt/huge
+            sudo mount -t hugetlbfs nodev /mnt/huge
+            
+        -> Permamente:
+            nodev /mnt/huge hugetlbfs defaults 0 0
+    
+    + Verificación del proceso:
+        cat /proc/meminfo | grep Huge
+        
+- Interfaces en modo DPDK:
+    + Comprobar estado:
+    ./usertools/dpdk-devbind.py --status
+    
+    + Enlazar interfaces al driver:
+    To bind device eth1,``04:00.1``, to the vfio-pci driver: ./usertools/dpdk-devbind.py --bind=vfio-pci 04:00.1,
+    or, alternatively: ./usertools/dpdk-devbind.py --bind=vfio-pci eth1
+
+
+
+Asegúrate de que tu app DPDK esté configurada para usar HugePages. Esto se hace con --huge-dir o configurando EAL en el código o línea de comandos, por ejemplo:
+./your_dpdk_app --huge-dir=/mnt/huge

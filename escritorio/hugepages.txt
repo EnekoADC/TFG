@@ -1,0 +1,6 @@
+# Asigna, por ejemplo, 1024 hugepages (2MB * 1024 = 2GB)
+echo 1024 | sudo tee /proc/sys/vm/nr_hugepages
+
+# Monta las páginas:
+sudo mkdir -p /mnt/huge
+sudo mount -t hugetlbfs nodev /mnt/huge
