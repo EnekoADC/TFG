@@ -188,12 +188,15 @@ l2fwd_main_loop(uint16_t port_in, uint16_t port_out)
 
         /* Zona de modificación de paquetes */
         // Ejemplo: intercambio de direcciones MAC (simulando MITM)
-        struct rte_ether_hdr *eth = rte_pktmbuf_mtod(bufs, struct rte_ether_hdr *);
-        struct rte_ether_addr tmp;
+	for (i = 0; i < nb_rx; i++)
+	{
+		struct rte_ether_hdr *eth = rte_pktmbuf_mtod(bufs[i], struct rte_ether_hdr *);
+        	struct rte_ether_addr tmp;
         
-        rte_ether_addr_copy(&eth->src_addr, &tmp);
-        rte_ether_addr_copy(&eth->dst_addr, &eth->src_addr);
-        rte_ether_addr_copy(&tmp, &eth->dst_addr);
+        	rte_ether_addr_copy(&eth->src_addr, &tmp);
+	        rte_ether_addr_copy(&eth->dst_addr, &eth->src_addr);
+	        rte_ether_addr_copy(&tmp, &eth->dst_addr);
+	}
         
 
         /* Envía los paquetes por el puerto de salida */
