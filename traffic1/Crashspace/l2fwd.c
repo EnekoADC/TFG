@@ -152,6 +152,18 @@ rewrite_mac_addresses(struct rte_mbuf *m, uint16_t out_port)
     /* dst_addr lo dejamos como está (o podrías cambiarlo al gateway) */
 }
 
+/* Verifica si es un paquete broadcast */
+static inline int
+is_broadcast(struct rte_ether_addr *addr)
+{
+    return (addr->addr_bytes[0] == 0xff &&
+            addr->addr_bytes[1] == 0xff &&
+            addr->addr_bytes[2] == 0xff &&
+            addr->addr_bytes[3] == 0xff &&
+            addr->addr_bytes[4] == 0xff &&
+            addr->addr_bytes[5] == 0xff);
+}
+
 /* Loop principal de forwarding */
 static void
 l2fwd_main_loop(uint16_t port_in, uint16_t port_out)
@@ -166,30 +178,32 @@ l2fwd_main_loop(uint16_t port_in, uint16_t port_out)
     printf("Presiona Ctrl+C para terminar limpiamente\n\n");
 
     /* Loop de RX/TX con condición de salida */
-    while (!force_quit) {
+    while (!force_quit)
+    {
         /* Recibe ráfaga de paquetes del puerto de entrada */
         nb_rx = rte_eth_rx_burst(port_in, 0, bufs, BURST_SIZE);
 
         if (unlikely(nb_rx == 0))
             continue;
 
-        /* Modo MITM transparente: NO modificamos los paquetes */
-        /* Si quieres modo echo/reflector, descomenta swap_mac_addresses() */
-        /* Si quieres forzar routing, usa rewrite_mac_addresses() */
+        /* Zona de modificación de paquetes */
+        // Ejemplo: intercambio de direcciones MAC (simulando MITM)
+        struct rte_ether_hdr *eth = rte_pktmbuf_mtod(bufs, struct rte_ether_hdr *);
+        struct rte_ether_addr tmp;
         
-        /* Para este ejemplo, reescribimos las MACs */
-        for (i = 0; i < nb_rx; i++) {
-            rewrite_mac_addresses(bufs[i], port_out);
-        }
+        rte_ether_addr_copy(&eth->src_addr, &tmp);
+        rte_ether_addr_copy(&eth->dst_addr, &eth->src_addr);
+        rte_ether_addr_copy(&tmp, &eth->dst_addr);
+        
 
         /* Envía los paquetes por el puerto de salida */
         nb_tx = rte_eth_tx_burst(port_out, 0, bufs, nb_rx);
 
         /* Libera los paquetes que no se pudieron enviar */
-        if (unlikely(nb_tx < nb_rx)) {
-            for (i = nb_tx; i < nb_rx; i++) {
+        if (unlikely(nb_tx < nb_rx))
+        {
+            for (i = nb_tx; i < nb_rx; i++)
                 rte_pktmbuf_free(bufs[i]);
-            }
         }
     }
     

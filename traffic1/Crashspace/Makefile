@@ -5,7 +5,7 @@
 APP = l2fwd
 
 # Archivos fuente
-SRCS-y := l2fwdv14.c
+SRCS-y := l2fwd.c
 
 # Configuración de pkg-config para DPDK
 PC_FILE := $(shell pkg-config --path libdpdk 2>/dev/null)
