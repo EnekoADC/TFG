@@ -1,0 +1,32 @@
+version: '3.9'
+services:
+  pc-a:
+    image: ubuntu:22.04
+    container_name: pc-a
+    networks:
+      dpdknet:
+        ipv4_address: 10.0.0.1
+    command: /bin/bash
+
+  router-dpdk:
+    image: dpdk/dpdk:latest
+    container_name: router-dpdk
+    privileged: true
+    network_mode: "none"
+    command: /bin/bash
+
+  pc-b:
+    image: ubuntu:22.04
+    container_name: pc-b
+    networks:
+      dpdknet:
+        ipv4_address: 10.0.0.2
+    command: /bin/bash
+
+networks:
+  dpdknet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.0.0/24
+
