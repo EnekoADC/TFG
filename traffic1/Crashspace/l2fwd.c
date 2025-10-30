@@ -110,59 +110,6 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
     return 0;
 }
 
-/* Opción 1: No modificar MACs (MITM transparente)
- * Para un verdadero man-in-the-middle, simplemente reenviamos
- * los paquetes sin tocar las direcciones MAC.
- */
-
-/* Opción 2: Intercambiar MACs (modo reflector/echo)
- * Solo útil para testing o responder al origen.
- * Descomenta esta función si quieres modo echo.
- */
-/*
-static void
-swap_mac_addresses(struct rte_mbuf *m)
-{
-    struct rte_ether_hdr *eth_hdr;
-    struct rte_ether_addr tmp_addr;
-
-    eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-    
-    rte_ether_addr_copy(&eth_hdr->dst_addr, &tmp_addr);
-    rte_ether_addr_copy(&eth_hdr->src_addr, &eth_hdr->dst_addr);
-    rte_ether_addr_copy(&tmp_addr, &eth_hdr->src_addr);
-}
-*/
-
-/* Opción 3: Reescribir MACs para forzar routing
- * Útil si necesitas que TODO el tráfico pase por ti.
- */
-static void
-rewrite_mac_addresses(struct rte_mbuf *m, uint16_t out_port)
-{
-    struct rte_ether_hdr *eth_hdr;
-    struct rte_ether_addr port_mac;
-
-    eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-    
-    /* Cambiar src_addr a la MAC del puerto de salida */
-    rte_eth_macaddr_get(out_port, &port_mac);
-    rte_ether_addr_copy(&port_mac, &eth_hdr->src_addr);
-    
-    /* dst_addr lo dejamos como está (o podrías cambiarlo al gateway) */
-}
-
-/* Verifica si es un paquete broadcast */
-static inline int
-is_broadcast(struct rte_ether_addr *addr)
-{
-    return (addr->addr_bytes[0] == 0xff &&
-            addr->addr_bytes[1] == 0xff &&
-            addr->addr_bytes[2] == 0xff &&
-            addr->addr_bytes[3] == 0xff &&
-            addr->addr_bytes[4] == 0xff &&
-            addr->addr_bytes[5] == 0xff);
-}
 
 /* Loop principal de forwarding */
 static void
