@@ -2,12 +2,17 @@
 #include <inttypes.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
 #include <rte_lcore.h>
 #include <rte_mbuf.h>
 #include <rte_ether.h>
+#include <rte_icmp.h>
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
@@ -38,7 +43,7 @@ static const struct rte_eth_conf port_conf_default = {
 
 /* Inicializa un puerto ethernet */
 static inline int
-port_init(uint16_t port, struct rte_mempool *mbuf_pool)
+first_portit(uint16_t port, struct rte_mempool *mbuf_pool)
 {
     struct rte_eth_conf port_conf = port_conf_default;
     const uint16_t rx_rings = 1, tx_rings = 1;
@@ -110,40 +115,119 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
     return 0;
 }
 
-
-/* Loop principal de forwarding */
-static void
-l2fwd_main_loop(uint16_t port_in, uint16_t port_out)
+void inspect_packet(struct rte_mbuf *mbuf,
+                    struct rte_ether_hdr *ethernet_header,
+                    struct rte_ipv4_hdr *ip_header,
+                    struct rte_icmp_hdr *icmp_header)
 {
+    char ip_src_str[INET_ADDRSTRLEN];
+    char ip_dst_str[INET_ADDRSTRLEN];
+
+    ethernet_header = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+
+    printf("\n\n\t\t--- INICIO DEL ANÁLISIS ---\n");
+    printf("\n\t--- Analizando trama ETHERNET ---\n");
+    printf("MAC origen: %d:%d:%d:%d:%d:%d\n", RTE_ETHER_ADDR_BYTES(&(ethernet_header->src_addr)));
+    printf("MAC destino: %d:%d:%d:%d:%d:%d\n", RTE_ETHER_ADDR_BYTES(&(ethernet_header->dst_addr)));
+
+    if (ethernet_header -> ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
+    {
+        ip_header = (struct rte_ipv4_hdr *) (ethernet_header + 1);
+
+        printf("\n\t--- Analizando paquete IP ---\n");
+
+        inet_ntop(AF_INET, &ip_header->src_addr, ip_src_str, INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &ip_header->dst_addr, ip_dst_str, INET_ADDRSTRLEN);
+
+        printf("IP origen: %s -> IP destino: %s\n", ip_src_str, ip_dst_str);
+
+        if (ip_header->next_proto_id == IPPROTO_ICMP)
+        {
+            icmp_header = (struct rte_icmp_hdr *) (ip_header + 1);
+
+            printf("\n\t--- Analizando paquete ICMP ---\n");
+
+            switch (icmp_header->icmp_type)
+            {
+                case RTE_ICMP_TYPE_ECHO_REPLY:
+                    printf("Recibido echo reply\n");
+                    break;
+
+                case RTE_ICMP_TYPE_ECHO_REQUEST:
+                    printf("Recibido echo request\n");
+                    break;
+
+                case RTE_ICMP_TYPE_DEST_UNREACHABLE:
+                    printf("Recibido destination unreachable\n");
+                    break;
+
+                default:
+                    printf("Recibido ICMP no reconocido\n");
+                    break;
+            }
+        }
+        else
+            printf("Protocolo no reconocido (no es ICMP\n)");
+    }
+    else
+        printf("Protocolo no reconocido (no es IPv4\n)");
+
+    printf("\t\t--- FIN DEL ANÁLISIS ---\n");
+}
+
+static void
+read_send(uint16_t first_port, uint16_t second_port)
+{
+    //Variables de lectura de paquetes
     struct rte_mbuf *bufs[BURST_SIZE];
     uint16_t nb_rx;
     uint16_t nb_tx;
     uint16_t i;
 
-    printf("\nCore %u haciendo L2 forwarding. Puerto %u -> Puerto %u\n",
-            rte_lcore_id(), port_in, port_out);
+    //Variables de inspección de paquetes
+    struct rte_ether_hdr *ethernet_header;
+    struct rte_ipv4_hdr *ip_header;
+    struct rte_icmp_hdr *icmp_header;
+
+    /* Recibe ráfaga de paquetes del puerto de entrada */
+    nb_rx = rte_eth_rx_burst(first_port, 0, bufs, BURST_SIZE);
+
+    if (nb_rx > 0)
+    {
+        //Analiza cada paquete antes de enviarlo
+        for (int i = 0; i < nb_rx; i++)
+            inspect_packet(bufs[i], ethernet_header, ip_header, icmp_header);
+
+        /* Envía los paquetes por el puerto de salida */
+        nb_tx = rte_eth_tx_burst(second_port, 0, bufs, nb_rx);
+    }
+
+    /* Libera los paquetes que no se pudieron enviar */
+    if (unlikely(nb_tx < nb_rx))
+    {
+        for (i = nb_tx; i < nb_rx; i++)
+            rte_pktmbuf_free(bufs[i]);
+    }
+}
+
+/* Loop principal de forwarding */
+static void
+l2fwd_main_loop(uint16_t first_port, uint16_t second_port)
+{
+    printf("\nCore %u haciendo L2 forwarding entre puertos %u y %u\n",
+            rte_lcore_id(), first_port, second_port);
     printf("Presiona Ctrl+C para terminar limpiamente\n\n");
 
     /* Loop de RX/TX con condición de salida */
     while (!force_quit)
     {
-        /* Recibe ráfaga de paquetes del puerto de entrada */
-        nb_rx = rte_eth_rx_burst(port_in, 0, bufs, BURST_SIZE);
+        //Reenvío de if0 a if1
+        read_send(first_port, second_port);
 
-        if (unlikely(nb_rx == 0))
-            continue;
-
-        /* Envía los paquetes por el puerto de salida */
-        nb_tx = rte_eth_tx_burst(port_out, 0, bufs, nb_rx);
-
-        /* Libera los paquetes que no se pudieron enviar */
-        if (unlikely(nb_tx < nb_rx))
-        {
-            for (i = nb_tx; i < nb_rx; i++)
-                rte_pktmbuf_free(bufs[i]);
-        }
+        //Reenvío de if1 a if0
+        read_send(second_port, first_port);
     }
-    
+
     printf("\nSaliendo del loop de forwarding...\n");
 }
 
@@ -181,10 +265,10 @@ main(int argc, char *argv[])
         rte_exit(EXIT_FAILURE, "No se puede crear mbuf pool\n");
 
     /* Inicializa los primeros 2 puertos */
-    if (port_init(0, mbuf_pool) != 0)
+    if (first_portit(0, mbuf_pool) != 0)
         rte_exit(EXIT_FAILURE, "No se puede inicializar el puerto 0\n");
 
-    if (port_init(1, mbuf_pool) != 0)
+    if (first_portit(1, mbuf_pool) != 0)
         rte_exit(EXIT_FAILURE, "No se puede inicializar el puerto 1\n");
 
     /* Verifica que tengamos al menos un lcore disponible */
