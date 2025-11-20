@@ -118,7 +118,8 @@ first_portit(uint16_t port, struct rte_mempool *mbuf_pool)
 void inspect_packet(struct rte_mbuf *mbuf,
                     struct rte_ether_hdr *ethernet_header,
                     struct rte_ipv4_hdr *ip_header,
-                    struct rte_icmp_hdr *icmp_header)
+                    struct rte_icmp_hdr *icmp_header,
+                    struct rte_tcp_hdr *tcp_header)
 {
     char ip_src_str[INET_ADDRSTRLEN];
     char ip_dst_str[INET_ADDRSTRLEN];
@@ -141,36 +142,47 @@ void inspect_packet(struct rte_mbuf *mbuf,
 
         printf("IP origen: %s -> IP destino: %s\n", ip_src_str, ip_dst_str);
 
-        if (ip_header->next_proto_id == IPPROTO_ICMP)
+        switch (ip_header->next_proto_id)
         {
-            icmp_header = (struct rte_icmp_hdr *) (ip_header + 1);
+            case IPPROTO_ICMP:
+                icmp_header = (struct rte_icmp_hdr *) (ip_header + 1);
 
-            printf("\n\t--- Analizando paquete ICMP ---\n");
+                printf("\n\t--- Analizando paquete ICMP ---\n");
 
-            switch (icmp_header->icmp_type)
-            {
-                case RTE_ICMP_TYPE_ECHO_REPLY:
-                    printf("Recibido echo reply\n");
-                    break;
+                switch (icmp_header->icmp_type)
+                {
+                    case RTE_ICMP_TYPE_ECHO_REPLY:
+                        printf("Recibido echo reply\n");
+                        break;
 
-                case RTE_ICMP_TYPE_ECHO_REQUEST:
-                    printf("Recibido echo request\n");
-                    break;
+                    case RTE_ICMP_TYPE_ECHO_REQUEST:
+                        printf("Recibido echo request\n");
+                        break;
 
-                case RTE_ICMP_TYPE_DEST_UNREACHABLE:
-                    printf("Recibido destination unreachable\n");
-                    break;
+                    case RTE_ICMP_TYPE_DEST_UNREACHABLE:
+                        printf("Recibido destination unreachable\n");
+                        break;
 
-                default:
-                    printf("Recibido ICMP no reconocido\n");
-                    break;
-            }
+                    default:
+                        printf("Recibido ICMP no reconocido\n");
+                        break;
+                }
+
+            case IPPROTO_TCP:
+                tcp_header = (struct rte_tcp_hdr *) (ip_header + 1);
+                printf("\n\t--- Analizando paquete ICMP ---\n");
+                printf("Puerto TCP origen: " PRIu16 "\n", rte_be_to_cpu_16(tcp_header->src_port);
+                printf("Puerto TCP destino: " PRIu16 "\n", rte_be_to_cpu_16(tcp_header->dst_port));
+
+
+
+            default:
+                printf("Protocolo no reconocido\n");
+                break;
         }
-        else
-            printf("Protocolo no reconocido (no es ICMP\n)");
     }
     else
-        printf("Protocolo no reconocido (no es IPv4\n)");
+        printf("Protocolo no reconocido (no es IPv4)\n");
 
     printf("\t\t--- FIN DEL ANÁLISIS ---\n");
 }
