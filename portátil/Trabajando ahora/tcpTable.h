@@ -2,11 +2,10 @@
 #define EAD_TCP_TABLE
 
 #include <stdint.h>
+#include <rte_hash.h>
 
 //uint64_t tsc = rte_get_tsc_cycles();
 //uint64_t now_ns = tsc * 1000000000ULL / rte_get_tsc_hz();
-
-#define TABLE_SIZE 150
 
 #define TCP_SYN_SENT        0x01
 #define TCP_SYN_RECV        0x02
@@ -56,9 +55,7 @@ typedef struct tcp_table_t
     uint32_t n_connections;
 } tcp_table;
 
-tcp_table tcpTableInit(void);
-void updateConnections();
-
-//crear funciones de modificación de flags y timestamps
+tcp_table tcpTableInit(const char *, uint32_t);
+void updateConnections(tcp_table *, struct rte_mbuf *);
 
 #endif
