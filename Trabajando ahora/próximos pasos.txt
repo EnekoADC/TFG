@@ -1,3 +1,0 @@
-- Sacar campos TCP/UDP
-- Registro de conexiones (tabla de conexiones)
-- Contadores de paquetes/bytes para cada conexión y tiempo del último paquete visto
