@@ -1,0 +1,5 @@
+Versión 1:
+ - DPDK compilado con -Dplatform=generic
+ - Interfaces ens3 y ens4 enlazadas automáticamente a vfio-pci en arranque
+ - dpdk-devbind.py añadido al PATH permanentemente
+ - Modo cpu cambiado a host (compatibilidad con ssse3)

@@ -1,2 +1,0 @@
-sudo timeout 300 ./l2fwd -l 0-1 -n 4
-

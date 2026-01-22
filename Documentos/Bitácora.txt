@@ -1,0 +1,49 @@
+	·12/1/26·
+Estuve intentando configurar dpdk con la máquina virtual para conseguir una eficiencia óptima. Virtualbox me dio bastantes problemas,
+así que porté la máquina virtual a qemu para conseguir un rendimiento superior con un hipervisor ya integrado en el sistema. Sin
+embargo, después de mucho trabajo, descubrí que GNS3 no soporta máquinas qemu para ejecutar el servidor, así que me limité a usar el
+servidor local.
+
+	·13/1/26·
+He instalado las máquinas debian en GNS3 y he montado la primera versión de la red. He tenido algunos problemas de configuración de
+rutas al estar todas las máquinas en la misma subred, pero bastó con ajustar las tablas de rutas. La idea era garantizar que la
+conectividad entre máquinas fuera correcta, pero posteriormente descubrí que tener rutas asociadas a las interfaces complica el
+enlace con vfio-pci.
+
+El siguiente paso fue conectar el pc con DPDK a mi portátil para compartir el comprimido con DPDK y para utilizar el portátil para
+acceder a internet. Esta parte también fue problemática debido a una IP que asigné y no estaba libre, pero no estaba anunciada en
+ninguna parte. Fue un error difícil de detectar, pero conseguí rematar la topología conectando la máquina DPDK a mi portátil y, a
+través de este, a Internet.
+
+	·14/1/26·
+Con la topología ya montada, he compilado DPDK y me he enfrentado a numerosos problemas de almacenamiento. Resulta que el tamaño del
+disco no se aplicaba directamente a la partición del sistema raíz, y tuve que hacer varios ajustes en las máquinas y el sistema de
+archivos. Una vez compilados todos los archivos he configurado las hugepages, lo cual ha consumido la totalidad de la RAM de la MV
+y me ha impedido iniciar sesión. Problema trivial, pero más ajustes requeridos. Una vez ajustados tamaños de discos, particiones,
+etc. tocaba enlazar las interfaces a vfio-pci, y también ha resultado problemático por la forma en qué el script comprobaba si
+IOMMU estaba activado y cómo lo mostraba debian. Después de varios ajustes y perder acceso a las interfaces varias veces, he optado
+por volver a montar toda la topología con máquinas Ubuntu. Según mi investigación, son más versátiles a la hora de tratar con sistemas
+modernos como aplicaciones DPDK
+
+	·15/1/26·
+Todo el proceso mencionado anteriormente, pero reconstruyendo la topología con MVs ubuntu en lugar de debian. He cerrado el día
+compilando todo, mañana pasaré a la ejecución de aplicaciones dpdk de prueba.
+
+	·16/1/26·
+Hoy he intentado ejecutar el helloworld. Una vez configurado todo he seguido encontrándome con errores al lanzar las apps. Ahora
+obtenía un error al inicializar el EAL porque la cpu no era compatible. He estado intentando solucionarlo pero no lo consigo. He
+añadido vCPUs, he recompilado DPDK con platform=generic y algún otro apaño que ahora mismo no recuerdo. Nada funciona.
+
+	·18/1/26·
+Problemas de SSSE3 resueltos. Por lo visto GNS3 estaba usando una versión vieja de CPUs virtuales. He añadido la opción -cpu host
+en la sección de Advanced/Additional options para que el cpu virtual tenga las características del CPU real. El siguiente error
+ha sido "EAL: Cannot use IOVA as 'PA' since physical addresses are not available". La solución a este ha sido fácil: ha bastado
+con ejecutar el programa con sudo.
+
+También he hecho un pequeño ajuste en la configuración de entorno. En lugar de tener un txt con los pasos para acceder a internet
+a través del portátil, lo he convertido en un .sh que aplique esos pasos al ejecutarlo. Además, he configurado la interfaz tap
+que creé al efecto para que tenga una ip en arranque.
+
+Sobre la dirección del proyecto, estoy planteándome utilizar máquinas virtuales con virt-manager, ya que el trabajo se centra en
+el desarrollo de una app DPDK en una VM. Las conexiones de red son mínimas y triviales en este caso, lo importante es el desarrollo
+del programa en la VM central.
