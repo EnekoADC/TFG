@@ -47,3 +47,13 @@ que creé al efecto para que tenga una ip en arranque.
 Sobre la dirección del proyecto, estoy planteándome utilizar máquinas virtuales con virt-manager, ya que el trabajo se centra en
 el desarrollo de una app DPDK en una VM. Las conexiones de red son mínimas y triviales en este caso, lo importante es el desarrollo
 del programa en la VM central.
+
+	·9/2/26·
+Durante el lapso de tiempo que llevo sin añadir entradas, si bien es cierto que pasé un tiempo sin trabajar, estuve también largo
+y tendido investigando sobre máquinas virtuales y qemu, pero descarté la opción del trabajo exclusivamente en máquinas virtuales
+después de descubrir que era casi imposible simular las conexiones que me permitía gns3. También estuve divagando sobre la mejor
+estructura para almacenar los distintos flujos tcp. Después de tantear varias implementaciones iniciales que incluían una tabla
+a modo de almacenamiento y algunos punteros para tener acceso rápido para eliminación de flujos, acordé con Xabi empezar con
+una tabla hash y añadir más adelante los mecanismos de gestión eficiente de eliminación de flujos antiguos.
+
+Hecha esta aclaración, mi intención hoy es terminar la tabla hash.
