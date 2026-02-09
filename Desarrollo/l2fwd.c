@@ -14,6 +14,8 @@
 #include <rte_ether.h>
 #include <rte_icmp.h>
 
+#include "modules/tcpTable.h"
+
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
 #define NUM_MBUFS 8191
@@ -119,11 +121,9 @@ void inspect_packet(struct rte_mbuf *mbuf,
                     struct rte_ether_hdr *ethernet_header,
                     struct rte_ipv4_hdr *ip_header,
                     struct rte_icmp_hdr *icmp_header,
-                    struct rte_tcp_hdr *tcp_header)
+                    struct rte_tcp_hdr *tcp_header,
+                    struct conn_table *tcp_table)
 {
-    char ip_src_str[INET_ADDRSTRLEN];
-    char ip_dst_str[INET_ADDRSTRLEN];
-
     ethernet_header = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
 
     printf("\n\n\t\t--- INICIO DEL ANÁLISIS ---\n");
@@ -134,6 +134,9 @@ void inspect_packet(struct rte_mbuf *mbuf,
     if (ethernet_header -> ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
     {
         ip_header = (struct rte_ipv4_hdr *) (ethernet_header + 1);
+
+        char ip_src_str[INET_ADDRSTRLEN];
+        char ip_dst_str[INET_ADDRSTRLEN];
 
         printf("\n\t--- Analizando paquete IP ---\n");
 
@@ -172,9 +175,24 @@ void inspect_packet(struct rte_mbuf *mbuf,
 
             case IPPROTO_TCP:
                 tcp_header = (struct rte_tcp_hdr *) (ip_header + 1);
+
+                uint16_t src_port = rte_be_to_cpu_16(tcp_header->src_port);
+                uint16_t dst_port = rte_be_to_cpu_16(tcp_header->dst_port);
+                
                 printf("\n\t--- Analizando paquete TCP ---\n");
-                printf("Puerto TCP origen: %" PRIu16 "\n", rte_be_to_cpu_16(tcp_header->src_port));
-                printf("Puerto TCP destino: %" PRIu16 "\n", rte_be_to_cpu_16(tcp_header->dst_port));
+                printf("Puerto TCP origen: %" PRIu16 "\n", src_port);
+                printf("Puerto TCP destino: %" PRIu16 "\n", dst_port);
+
+                struct five_tuple flow_key =
+                {
+                    .src_ip = ip_header->src_addr,
+                    .dst_ip = ip_header->dst_addr,
+                    .src_port = src_port,
+                    .dst_port = dst_port,
+                    .proto = 6      //TCP
+                };
+
+                updateConnections(tcp_table, flow_key, rte_pktmbuf_pkt_len(mbuf));
 
                 break;
 
@@ -191,7 +209,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
 }
 
 static void
-read_send(uint16_t first_port, uint16_t second_port)
+read_send(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_table)
 {
     //Variables de lectura de paquetes
     struct rte_mbuf *bufs[BURST_SIZE];
@@ -211,8 +229,8 @@ read_send(uint16_t first_port, uint16_t second_port)
     if (nb_rx > 0)
     {
         //Analiza cada paquete antes de enviarlo
-        for (int i = 0; i < nb_rx; i++)
-            inspect_packet(bufs[i], ethernet_header, ip_header, icmp_header, tcp_header);
+        for (i = 0; i < nb_rx; i++)
+            inspect_packet(bufs[i], ethernet_header, ip_header, icmp_header, tcp_header, tcp_table);
 
         /* Envía los paquetes por el puerto de salida */
         nb_tx = rte_eth_tx_burst(second_port, 0, bufs, nb_rx);
@@ -228,7 +246,7 @@ read_send(uint16_t first_port, uint16_t second_port)
 
 /* Loop principal de forwarding */
 static void
-l2fwd_main_loop(uint16_t first_port, uint16_t second_port)
+l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_table)
 {
     printf("\nCore %u haciendo L2 forwarding entre puertos %u y %u\n",
             rte_lcore_id(), first_port, second_port);
@@ -238,10 +256,10 @@ l2fwd_main_loop(uint16_t first_port, uint16_t second_port)
     while (!force_quit)
     {
         //Reenvío de if0 a if1
-        read_send(first_port, second_port);
+        read_send(first_port, second_port, tcp_table);
 
         //Reenvío de if1 a if0
-        read_send(second_port, first_port);
+        read_send(second_port, first_port, tcp_table);
     }
 
     printf("\nSaliendo del loop de forwarding...\n");
@@ -253,6 +271,7 @@ main(int argc, char *argv[])
     struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
     uint16_t portid;
+    struct conn_table *tcp_table = initTcpTable("flow_table");
 
     /* Inicializa el Environment Abstraction Layer (EAL) */
     int ret = rte_eal_init(argc, argv);
@@ -292,7 +311,7 @@ main(int argc, char *argv[])
         printf("\nWARNING: Demasiados lcores habilitados. Solo se usa 1.\n");
 
     /* Llama al loop principal en el lcore principal */
-    l2fwd_main_loop(0, 1);
+    l2fwd_main_loop(0, 1, tcp_table);
 
     printf("\n==== Iniciando limpieza ====\n");
 

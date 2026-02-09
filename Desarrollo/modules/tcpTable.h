@@ -31,16 +31,15 @@ struct tcp_flow
     unsigned int n_packets;
 };
 
+
 struct conn_table
 {
-    tcp_flow connections[MAX_CONN];
+    struct rte_hash *connections;
 
-    unsigned int next_elem;
-
-    tcp_flow* first;
-    tcp_flow* last;
+    uint32_t current_flows;
 };
 
-conn_table* initTcpTable();
+struct conn_table* initTcpTable(const char *);
+void updateConnections(struct conn_table*, struct five_tuple, uint32_t);
 
 #endif
