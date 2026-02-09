@@ -56,4 +56,7 @@ estructura para almacenar los distintos flujos tcp. Después de tantear varias i
 a modo de almacenamiento y algunos punteros para tener acceso rápido para eliminación de flujos, acordé con Xabi empezar con
 una tabla hash y añadir más adelante los mecanismos de gestión eficiente de eliminación de flujos antiguos.
 
-Hecha esta aclaración, mi intención hoy es terminar la tabla hash.
+Hecha esta aclaración, mi intención hoy es terminar la tabla hash. Después de un buen rato de trabajo, parece que ya tengo una
+primera versión de la tabla hash. Mi próxima tarea será realizar unas pruebas sobre la misma y añadir algunas funcionalidades
+extra, como el estado TCP, el timeout para los flujos (garbagge collection) y contemplar flujos bidireccionales en lugar de
+almacenar una entrada por cada dirección de un flujo.
