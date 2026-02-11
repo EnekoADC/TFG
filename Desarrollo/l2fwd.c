@@ -13,6 +13,7 @@
 #include <rte_mbuf.h>
 #include <rte_ether.h>
 #include <rte_icmp.h>
+#include <rte_mempool.h>
 
 #include "modules/tcpTable.h"
 
@@ -122,7 +123,8 @@ void inspect_packet(struct rte_mbuf *mbuf,
                     struct rte_ipv4_hdr *ip_header,
                     struct rte_icmp_hdr *icmp_header,
                     struct rte_tcp_hdr *tcp_header,
-                    struct conn_table *tcp_table)
+                    struct conn_table *tcp_table,
+                    struct rte_mempool *flow_pool)
 {
     ethernet_header = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
 
@@ -192,7 +194,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
                     .proto = 6      //TCP
                 };
 
-                updateConnections(tcp_table, flow_key, rte_pktmbuf_pkt_len(mbuf));
+                updateConnections(tcp_table, flow_pool, flow_key, rte_pktmbuf_pkt_len(mbuf));
 
                 break;
 
@@ -209,7 +211,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
 }
 
 static void
-read_send(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_table)
+read_send(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_table, struct rte_mempool *flow_pool)
 {
     //Variables de lectura de paquetes
     struct rte_mbuf *bufs[BURST_SIZE];
@@ -230,7 +232,7 @@ read_send(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_tabl
     {
         //Analiza cada paquete antes de enviarlo
         for (i = 0; i < nb_rx; i++)
-            inspect_packet(bufs[i], ethernet_header, ip_header, icmp_header, tcp_header, tcp_table);
+            inspect_packet(bufs[i], ethernet_header, ip_header, icmp_header, tcp_header, tcp_table, flow_pool);
 
         /* Envía los paquetes por el puerto de salida */
         nb_tx = rte_eth_tx_burst(second_port, 0, bufs, nb_rx);
@@ -246,7 +248,7 @@ read_send(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_tabl
 
 /* Loop principal de forwarding */
 static void
-l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_table)
+l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *tcp_table, struct rte_mempool *flow_pool)
 {
     printf("\nCore %u haciendo L2 forwarding entre puertos %u y %u\n",
             rte_lcore_id(), first_port, second_port);
@@ -256,10 +258,10 @@ l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *tc
     while (!force_quit)
     {
         //Reenvío de if0 a if1
-        read_send(first_port, second_port, tcp_table);
+        read_send(first_port, second_port, tcp_table, flow_pool);
 
         //Reenvío de if1 a if0
-        read_send(second_port, first_port, tcp_table);
+        read_send(second_port, first_port, tcp_table, flow_pool);
     }
 
     printf("\nSaliendo del loop de forwarding...\n");
@@ -268,7 +270,7 @@ l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *tc
 int
 main(int argc, char *argv[])
 {
-    struct rte_mempool *mbuf_pool;
+    struct rte_mempool *mbuf_pool, *flow_pool;
     unsigned nb_ports;
     uint16_t portid;
     struct conn_table *tcp_table = initTcpTable("flow_table");
@@ -299,6 +301,21 @@ main(int argc, char *argv[])
     if (mbuf_pool == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear mbuf pool\n");
 
+    flow_pool = rte_mempool_create(
+        "FLOW_POOL",
+        1<<3,
+        sizeof(struct tcp_flow),
+        32,
+        0,
+        NULL, NULL,
+        NULL, NULL,
+        rte_socket_id(),
+        0
+    );
+
+    if (flow_pool == NULL)
+        rte_exit(EXIT_FAILURE, "No se puede crear flow_pool\n");
+
     /* Inicializa los primeros 2 puertos */
     if (first_portit(0, mbuf_pool) != 0)
         rte_exit(EXIT_FAILURE, "No se puede inicializar el puerto 0\n");
@@ -311,7 +328,7 @@ main(int argc, char *argv[])
         printf("\nWARNING: Demasiados lcores habilitados. Solo se usa 1.\n");
 
     /* Llama al loop principal en el lcore principal */
-    l2fwd_main_loop(0, 1, tcp_table);
+    l2fwd_main_loop(0, 1, tcp_table, flow_pool);
 
     printf("\n==== Iniciando limpieza ====\n");
 

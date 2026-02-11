@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include <rte_mempool.h>
+
 #define MAX_CONN 1<<3
 
 struct five_tuple
@@ -40,6 +42,7 @@ struct conn_table
 };
 
 struct conn_table* initTcpTable(const char *);
-void updateConnections(struct conn_table*, struct five_tuple, uint32_t);
+void updateConnections(struct conn_table *, struct rte_mempool *, struct five_tuple, uint32_t);
+void showConnections(struct conn_table *);
 
 #endif

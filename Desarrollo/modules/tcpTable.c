@@ -2,10 +2,12 @@
 
 #include <stdio.h>
 #include <stddef.h>
+#include <arpa/inet.h>
 
 #include <rte_hash.h>
 #include <rte_jhash.h>
 #include <rte_cycles.h>
+#include <rte_mempool.h>
 
 struct conn_table* initTcpTable(const char *table_name)
 {
@@ -24,9 +26,9 @@ struct conn_table* initTcpTable(const char *table_name)
     return tcp_table;
 }
 
-void updateConnections(struct conn_table *tcp_table, struct five_tuple id, uint32_t pkt_len)
+void updateConnections(struct conn_table *tcp_table, struct rte_mempool *flow_pool, struct five_tuple id, uint32_t pkt_len)
 {
-    int exists = rte_hash_lookup(tcp_table->connections, &id);
+    int32_t exists = rte_hash_lookup(tcp_table->connections, &id);
 
     if (exists != -ENOENT)
     {
@@ -44,16 +46,31 @@ void updateConnections(struct conn_table *tcp_table, struct five_tuple id, uint3
     {
         if (tcp_table->current_flows < MAX_CONN)
         {
-            struct tcp_flow flow = {
-                .first_seen = rte_rdtsc(),
-                .last_seen = rte_rdtsc(),
-                .id = id,
-                .n_bytes = pkt_len,
-                .n_packets = 1
-                //.tcp_state = 0
-            };
+            struct tcp_flow *new_flow;
+            if (rte_mempool_get(flow_pool, (void **)&new_flow) < 0)
+                printf("Flow pool saturado temporalmente\n");
 
-            int ret = rte_hash_add_key_data(tcp_table->connections, &id, &flow);
+            else
+            {
+                new_flow->first_seen = rte_rdtsc();
+                new_flow->last_seen = rte_rdtsc();
+                new_flow->id = id;
+                new_flow->n_bytes = pkt_len;
+                new_flow->n_packets = 1;
+                new_flow->tcp_state = 0;
+            }
+
+            int ret = rte_hash_add_key_data(tcp_table->connections, &id, new_flow);
+
+            if (ret != 0)
+            {
+                printf("Flow no almacenado en la tabla!!!\n");
+                printf("Devolviendo mempool\n");
+                rte_mempool_put(flow_pool, new_flow);
+            }
+
+            else
+                tcp_table->current_flows++;
         }
 
         else
@@ -64,7 +81,26 @@ void updateConnections(struct conn_table *tcp_table, struct five_tuple id, uint3
     }
 }
 
-uint64_t now()
+
+void showConnections(struct conn_table *tcp_table)
 {
-    return 0;
+    const void *key;
+    void *data;
+    uint32_t iter = 0;
+
+    printf("TOTAL OF FLOWS: %d", tcp_table->current_flows);
+    while (rte_hash_iterate(tcp_table->connections, &key, &data, &iter) >= 0)
+    {
+        const struct tcp_flow *flow = data;
+        const struct five_tuple *id = key;
+
+        char ip_src_str[INET_ADDRSTRLEN];
+        char ip_dst_str[INET_ADDRSTRLEN];
+
+        inet_ntop(AF_INET, &id->src_ip, ip_src_str, INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &id->dst_ip, ip_dst_str, INET_ADDRSTRLEN);
+
+        printf("Showing flow %s:%d->%s:%d\n", ip_src_str, id->src_port, ip_dst_str, id->dst_port);
+        printf("Packets: %-10u Bytes: %-10u\n", flow->n_packets, flow->n_bytes);
+    }
 }
