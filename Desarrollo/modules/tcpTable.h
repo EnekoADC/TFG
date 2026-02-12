@@ -5,7 +5,7 @@
 
 #include <rte_mempool.h>
 
-#define MAX_CONN 1<<3
+#define MAX_CONN 1<<9
 
 struct five_tuple
 {

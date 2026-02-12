@@ -265,6 +265,8 @@ l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *tc
     }
 
     printf("\nSaliendo del loop de forwarding...\n");
+
+    showConnections(tcp_table);
 }
 
 int
@@ -273,7 +275,7 @@ main(int argc, char *argv[])
     struct rte_mempool *mbuf_pool, *flow_pool;
     unsigned nb_ports;
     uint16_t portid;
-    struct conn_table *tcp_table = initTcpTable("flow_table");
+    struct conn_table *tcp_table;
 
     /* Inicializa el Environment Abstraction Layer (EAL) */
     int ret = rte_eal_init(argc, argv);
@@ -303,7 +305,7 @@ main(int argc, char *argv[])
 
     flow_pool = rte_mempool_create(
         "FLOW_POOL",
-        1<<3,
+        1<<9,
         sizeof(struct tcp_flow),
         32,
         0,
@@ -312,9 +314,11 @@ main(int argc, char *argv[])
         rte_socket_id(),
         0
     );
-
+    
     if (flow_pool == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear flow_pool\n");
+    
+    tcp_table = initTcpTable("flow_table");
 
     /* Inicializa los primeros 2 puertos */
     if (first_portit(0, mbuf_pool) != 0)

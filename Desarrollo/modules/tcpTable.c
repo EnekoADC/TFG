@@ -8,10 +8,13 @@
 #include <rte_jhash.h>
 #include <rte_cycles.h>
 #include <rte_mempool.h>
+#include <rte_malloc.h>
 
 struct conn_table* initTcpTable(const char *table_name)
 {
-    struct conn_table* tcp_table;
+    struct conn_table* tcp_table = rte_malloc("TCP_TABLE", sizeof(struct conn_table), 0);
+    if (tcp_table == NULL)
+        rte_exit(EXIT_FAILURE, "No se puede reservar memoria para tcp_table\n");
 
     struct rte_hash_parameters params = {
         .name = table_name,
@@ -19,7 +22,7 @@ struct conn_table* initTcpTable(const char *table_name)
         .key_len = sizeof(struct five_tuple),
         .hash_func = rte_jhash
     };
-
+    
     tcp_table->connections = rte_hash_create(&params);
     tcp_table->current_flows = 0;
 
@@ -88,7 +91,7 @@ void showConnections(struct conn_table *tcp_table)
     void *data;
     uint32_t iter = 0;
 
-    printf("TOTAL OF FLOWS: %d", tcp_table->current_flows);
+    printf("\nTOTAL OF FLOWS: %d\n", tcp_table->current_flows);
     while (rte_hash_iterate(tcp_table->connections, &key, &data, &iter) >= 0)
     {
         const struct tcp_flow *flow = data;
@@ -103,4 +106,5 @@ void showConnections(struct conn_table *tcp_table)
         printf("Showing flow %s:%d->%s:%d\n", ip_src_str, id->src_port, ip_dst_str, id->dst_port);
         printf("Packets: %-10u Bytes: %-10u\n", flow->n_packets, flow->n_bytes);
     }
+    printf("\n\n");
 }
