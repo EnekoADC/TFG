@@ -73,3 +73,10 @@ nueva arquitectura y, espero, quitando el miedo a no conocer sus estructuras o l
 	·12/2/26·
 Hoy voy a hacer las pruebas y a arreglar la tabla. Una vez acabe eso creo que pasaré al garbage collection, pero eso ya se verá.
 Anotaré aquí mis resultados.
+
+Me cago en la puta, ¡¡QUE FUNCIONA!!. Llevo un par de horas pegándome para lanzar la jodida aplicación. El primer error: intentar
+crear estructuras DPDK sin llamar primero a rte_eal_init(). Sin darme cuenta, al declarar la tabla de conexiones llamaba a la
+función de inicialización, que internamente llamaba a rte_hash_create(). Esto, como he comprobado por las malas, es inviable
+antes de inicializar el EAL. El segundo error ha sido una novatada en C. Declaraba un puntero a una tabla de conexiones sin
+reservar memoria para el mismo, luego al intentar acceder... segmentation fault de manual. Una vez corregidos ambos, parece que
+la primera versión de la tabla funciona.
