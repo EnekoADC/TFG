@@ -69,3 +69,7 @@ programado.
 Por otra parte, hoy he empezado a aplicar un enfoque diferente al trabajo en el TFG. He decidido que por las mañanas me dedicaré
 a leer documentación acerca de DPDK y por las tardes me dedicaré a avanzar el trabajo. De esta forma iré aprendiendo sobre esta
 nueva arquitectura y, espero, quitando el miedo a no conocer sus estructuras o la forma correcta de programarla.
+
+	·12/2/26·
+Hoy voy a hacer las pruebas y a arreglar la tabla. Una vez acabe eso creo que pasaré al garbage collection, pero eso ya se verá.
+Anotaré aquí mis resultados.
