@@ -80,3 +80,12 @@ función de inicialización, que internamente llamaba a rte_hash_create(). Esto,
 antes de inicializar el EAL. El segundo error ha sido una novatada en C. Declaraba un puntero a una tabla de conexiones sin
 reservar memoria para el mismo, luego al intentar acceder... segmentation fault de manual. Una vez corregidos ambos, parece que
 la primera versión de la tabla funciona.
+
+	·13/2/26·
+Hoy he estado puliendo la tabla de conexiones según algunos detalles que me mencionó Xabi. Debo reconocer que al principio he
+divagado bastante porque no tenía claro qué hacer exactamente pero finalmente he hecho un buen avance, creo. He renombrado las
+estructuras y las funciones para que reflejen conexiones en general y no solo flujos TCP. También he borrado la parte de estado
+TCP, ya que la tabla está orientada a conexiones ICMP, TCP y UDP. Llegado el momento, siempre se puede añadir como un detalle más.
+Diría que mañana tocará empezar la parte de eliminación de flujos viejos (y por tanto la implementación de la cola enlazada subyacente
+a la tabla hash), y cuando tenga eso listo hablaré con Eduardo Magaña. Espero acabar estas modificaciones el fin de semana y el
+domingo a la noche o el lunes a la mañana mandar el correo a Eduardo.
