@@ -1,4 +1,4 @@
-#include "tcpTable.h"
+#include "connectionTable.h"
 
 #include <stdio.h>
 #include <stddef.h>
@@ -35,21 +35,20 @@ void updateConnections(struct conn_table *tcp_table, struct rte_mempool *flow_po
 
     if (exists != -ENOENT)
     {
-       struct tcp_flow *flow;
+       struct flow *flow;
        int ret = rte_hash_lookup_data(tcp_table->connections, &id, (void **)&flow);
 
         //Actualizar stats
         flow->last_seen = rte_rdtsc();
         flow->n_bytes += pkt_len;
         flow->n_packets += 1;
-        //flow->tcp_state &= 0;     //A futuro revisar estado de la conexión
     }
 
     else
     {
         if (tcp_table->current_flows < MAX_CONN)
         {
-            struct tcp_flow *new_flow;
+            struct flow *new_flow;
             if (rte_mempool_get(flow_pool, (void **)&new_flow) < 0)
                 printf("Flow pool saturado temporalmente\n");
 
@@ -60,7 +59,6 @@ void updateConnections(struct conn_table *tcp_table, struct rte_mempool *flow_po
                 new_flow->id = id;
                 new_flow->n_bytes = pkt_len;
                 new_flow->n_packets = 1;
-                new_flow->tcp_state = 0;
             }
 
             int ret = rte_hash_add_key_data(tcp_table->connections, &id, new_flow);
@@ -94,7 +92,7 @@ void showConnections(struct conn_table *tcp_table)
     printf("\nTOTAL OF FLOWS: %d\n", tcp_table->current_flows);
     while (rte_hash_iterate(tcp_table->connections, &key, &data, &iter) >= 0)
     {
-        const struct tcp_flow *flow = data;
+        const struct flow *flow = data;
         const struct five_tuple *id = key;
 
         char ip_src_str[INET_ADDRSTRLEN];
@@ -103,7 +101,8 @@ void showConnections(struct conn_table *tcp_table)
         inet_ntop(AF_INET, &id->src_ip, ip_src_str, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &id->dst_ip, ip_dst_str, INET_ADDRSTRLEN);
 
-        printf("Showing flow %s:%d->%s:%d\n", ip_src_str, id->src_port, ip_dst_str, id->dst_port);
+        printf("Showing flow %s%s->%s%s\n", ip_src_str, id->src_port != 0?sprintf(":%d", id->src_port):"",
+                                            ip_dst_str, id->dst_port != 0?sprintf(":%d", id->dst_port):"");
         printf("Packets: %-10u Bytes: %-10u\n", flow->n_packets, flow->n_bytes);
     }
     printf("\n\n");

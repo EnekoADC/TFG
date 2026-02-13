@@ -5,7 +5,7 @@
 
 #include <rte_mempool.h>
 
-#define MAX_CONN 1<<9
+#define MAX_CONN 512
 
 struct five_tuple
 {
@@ -16,7 +16,7 @@ struct five_tuple
     uint8_t proto;
 };
 
-struct tcp_flow
+struct flow
 {
     //ID de la conexión
     struct five_tuple id;
@@ -24,9 +24,6 @@ struct tcp_flow
     //Timestamps
     uint64_t first_seen;
     uint64_t last_seen;
-
-    //Flags de estado
-    uint8_t tcp_state;
 
     //Estadísticas
     unsigned int n_bytes;
