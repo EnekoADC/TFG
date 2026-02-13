@@ -3,3 +3,6 @@ Versión 1:
  - Interfaces ens3 y ens4 enlazadas automáticamente a vfio-pci en arranque
  - dpdk-devbind.py añadido al PATH permanentemente
  - Modo cpu cambiado a host (compatibilidad con ssse3)
+
+Versión 2:
+Creo que no tiene cambios respecto a la versión 1, pero es la versión final sin cambios sobre la que estoy desarrollando los programas.
