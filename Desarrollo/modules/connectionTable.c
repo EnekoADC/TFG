@@ -10,7 +10,7 @@
 #include <rte_mempool.h>
 #include <rte_malloc.h>
 
-struct conn_table* initTcpTable(const char *table_name)
+struct conn_table* initConnectionTable(const char *table_name)
 {
     struct conn_table* tcp_table = rte_malloc("TCP_TABLE", sizeof(struct conn_table), 0);
     if (tcp_table == NULL)
@@ -97,12 +97,21 @@ void showConnections(struct conn_table *tcp_table)
 
         char ip_src_str[INET_ADDRSTRLEN];
         char ip_dst_str[INET_ADDRSTRLEN];
+        char src_port_str[17];
+        char dst_port_str[17];
 
         inet_ntop(AF_INET, &id->src_ip, ip_src_str, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &id->dst_ip, ip_dst_str, INET_ADDRSTRLEN);
+        sprintf(src_port_str, "%d", id->src_port);
+        sprintf(dst_port_str, "%d", id->dst_port);
 
-        printf("Showing flow %s%s->%s%s\n", ip_src_str, id->src_port != 0?sprintf(":%d", id->src_port):"",
-                                            ip_dst_str, id->dst_port != 0?sprintf(":%d", id->dst_port):"");
+        printf("Showing flow %s%s%s->%s%s%s\n", ip_src_str,
+                                                id->src_port != 0?":":"",
+                                                id->src_port != 0?src_port_str:"",
+                                                ip_dst_str,
+                                                id->dst_port != 0?":":"",
+                                                id->dst_port != 0?dst_port_str:"");
+
         printf("Packets: %-10u Bytes: %-10u\n", flow->n_packets, flow->n_bytes);
     }
     printf("\n\n");

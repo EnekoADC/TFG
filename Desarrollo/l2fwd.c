@@ -178,6 +178,13 @@ void inspect_packet(struct rte_mbuf *mbuf,
 
         printf("IP origen: %s -> IP destino: %s\n", ip_src_str, ip_dst_str);
 
+        //ID de la conexión:
+        struct five_tuple flow_key;
+
+        //Puertos
+        uint16_t src_port;
+        uint16_t dst_port;
+
         switch (pkt_hdrs.ip_header->next_proto_id)
         {
             case IPPROTO_ICMP:
@@ -185,7 +192,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
 
                 printf("\n\t--- Analizando paquete ICMP ---\n");
 
-                struct five_tuple flow_key =
+                flow_key = (struct five_tuple)
                 {
                     .src_ip = pkt_hdrs.ip_header->src_addr,
                     .dst_ip = pkt_hdrs.ip_header->dst_addr,
@@ -202,14 +209,14 @@ void inspect_packet(struct rte_mbuf *mbuf,
             case IPPROTO_TCP:
                 pkt_hdrs.tcp_header = (struct rte_tcp_hdr *) (pkt_hdrs.ip_header + 1);
 
-                uint16_t src_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->src_port);
-                uint16_t dst_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->dst_port);
+                src_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->src_port);
+                dst_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->dst_port);
                 
                 printf("\n\t--- Analizando paquete TCP ---\n");
                 printf("Puerto TCP origen: %" PRIu16 "\n", src_port);
                 printf("Puerto TCP destino: %" PRIu16 "\n", dst_port);
 
-                struct five_tuple flow_key =
+                flow_key = (struct five_tuple)
                 {
                     .src_ip = pkt_hdrs.ip_header->src_addr,
                     .dst_ip = pkt_hdrs.ip_header->dst_addr,
@@ -225,14 +232,14 @@ void inspect_packet(struct rte_mbuf *mbuf,
             case IPPROTO_UDP:
                 pkt_hdrs.udp_header = (struct rte_udp_hdr *) (pkt_hdrs.ip_header + 1);
 
-                uint16_t src_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->src_port);
-                uint16_t dst_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->dst_port);
+                src_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->src_port);
+                dst_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->dst_port);
                 
                 printf("\n\t--- Analizando paquete UDP ---\n");
                 printf("Puerto UDP origen: %" PRIu16 "\n", src_port);
                 printf("Puerto UDP destino: %" PRIu16 "\n", dst_port);
 
-                struct five_tuple flow_key =
+                flow_key = (struct five_tuple)
                 {
                     .src_ip = pkt_hdrs.ip_header->src_addr,
                     .dst_ip = pkt_hdrs.ip_header->dst_addr,
@@ -360,7 +367,7 @@ main(int argc, char *argv[])
     if (flow_pool == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear flow_pool\n");
     
-    conn_table = initTcpTable("flow_table");
+    conn_table = initConnectionTable("flow_table");
 
     /* Inicializa los primeros 2 puertos */
     if (first_portit(0, mbuf_pool) != 0)

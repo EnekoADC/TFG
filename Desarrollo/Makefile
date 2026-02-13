@@ -9,7 +9,7 @@ SRCS-y := l2fwd.c
 
 # Carpeta de objetos
 OBJDIR = build/objects
-TCP_OBJ = $(OBJDIR)/tcpTable.o
+CONN_OBJ = $(OBJDIR)/connectionTable.o
 
 # Configuración de pkg-config para DPDK
 PC_FILE := $(shell pkg-config --path libdpdk 2>/dev/null)
@@ -23,13 +23,13 @@ LDFLAGS = $(LDFLAGS_SHARED)
 
 #CFLAGS += -DALLOW_EXPERIMENTAL_API
 
-build/$(APP): $(SRCS-y) $(TCP_OBJ) Makefile $(PC_FILE)
+build/$(APP): $(SRCS-y) $(CONN_OBJ) Makefile $(PC_FILE)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SRCS-y) $(TCP_OBJ) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(SRCS-y) $(CONN_OBJ) -o $@ $(LDFLAGS)
 
-$(TCP_OBJ): modules/tcpTable.c modules/tcpTable.h
+$(CONN_OBJ): modules/connectionTable.c modules/connectionTable.h
 	@mkdir -p $(OBJDIR)
-	$(CC) $(CFLAGS) -c modules/tcpTable.c -o $@
+	$(CC) $(CFLAGS) -c modules/connectionTable.c -o $@
 
 .PHONY: clean
 clean:

@@ -38,7 +38,7 @@ struct conn_table
     uint32_t current_flows;
 };
 
-struct conn_table* initTcpTable(const char *);
+struct conn_table* initConnectionTable(const char *);
 void updateConnections(struct conn_table *, struct rte_mempool *, struct five_tuple, uint32_t);
 void showConnections(struct conn_table *);
 
