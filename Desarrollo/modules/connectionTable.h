@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include <rte_hash.h>
 #include <rte_mempool.h>
 
 #define MAX_CONN 512
@@ -33,13 +34,17 @@ struct flow
 
 struct conn_table
 {
-    struct rte_hash *connections;
+    struct rte_hash *flow_hash;
+    struct rte_mempool *flow_pool;
+
+    struct flow *first_connection;
+    struct flow *last_connection;
 
     uint32_t current_flows;
 };
 
-struct conn_table* initConnectionTable(const char *);
-void updateConnections(struct conn_table *, struct rte_mempool *, struct five_tuple, uint32_t);
+struct conn_table* initConnectionTable(const char *, const char *);
+void updateConnections(struct conn_table *, struct five_tuple, uint32_t);
 void showConnections(struct conn_table *);
 
 #endif

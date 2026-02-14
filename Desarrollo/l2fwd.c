@@ -154,8 +154,7 @@ void icmpTranslations(uint8_t icmp_type)
 
 void inspect_packet(struct rte_mbuf *mbuf,
                     struct headers pkt_hdrs,
-                    struct conn_table *conn_table,
-                    struct rte_mempool *flow_pool)
+                    struct conn_table *connections)
 {
     pkt_hdrs.ethernet_header = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
 
@@ -202,7 +201,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
                 };
 
                 icmpTranslations(pkt_hdrs.icmp_header->icmp_type);
-                updateConnections(conn_table, flow_pool, flow_key, rte_pktmbuf_pkt_len(mbuf));
+                updateConnections(connections, flow_key, rte_pktmbuf_pkt_len(mbuf));
                 
                 break;
 
@@ -225,7 +224,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
                     .proto = IPPROTO_TCP
                 };
 
-                updateConnections(conn_table, flow_pool, flow_key, rte_pktmbuf_pkt_len(mbuf));
+                updateConnections(connections, flow_key, rte_pktmbuf_pkt_len(mbuf));
 
                 break;
 
@@ -248,7 +247,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
                     .proto = IPPROTO_UDP
                 };
 
-                updateConnections(conn_table, flow_pool, flow_key, rte_pktmbuf_pkt_len(mbuf));
+                updateConnections(connections, flow_key, rte_pktmbuf_pkt_len(mbuf));
 
 
             default:
@@ -263,7 +262,7 @@ void inspect_packet(struct rte_mbuf *mbuf,
 }
 
 static void
-read_send(uint16_t first_port, uint16_t second_port, struct conn_table *conn_table, struct rte_mempool *flow_pool)
+read_send(uint16_t first_port, uint16_t second_port, struct conn_table *connections)
 {
     //Variables de lectura de paquetes
     struct rte_mbuf *bufs[BURST_SIZE];
@@ -281,7 +280,7 @@ read_send(uint16_t first_port, uint16_t second_port, struct conn_table *conn_tab
     {
         //Analiza cada paquete antes de enviarlo
         for (i = 0; i < nb_rx; i++)
-            inspect_packet(bufs[i], packet_headers, conn_table, flow_pool);
+            inspect_packet(bufs[i], packet_headers, connections);
 
         /* Envía los paquetes por el puerto de salida */
         nb_tx = rte_eth_tx_burst(second_port, 0, bufs, nb_rx);
@@ -297,7 +296,7 @@ read_send(uint16_t first_port, uint16_t second_port, struct conn_table *conn_tab
 
 /* Loop principal de forwarding */
 static void
-l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *conn_table, struct rte_mempool *flow_pool)
+l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *connections)
 {
     printf("\nCore %u haciendo L2 forwarding entre puertos %u y %u\n",
             rte_lcore_id(), first_port, second_port);
@@ -307,24 +306,24 @@ l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *co
     while (!force_quit)
     {
         //Reenvío de if0 a if1
-        read_send(first_port, second_port, conn_table, flow_pool);
+        read_send(first_port, second_port, connections);
 
         //Reenvío de if1 a if0
-        read_send(second_port, first_port, conn_table, flow_pool);
+        read_send(second_port, first_port, connections);
     }
 
     printf("\nSaliendo del loop de forwarding...\n");
 
-    showConnections(conn_table);
+    showConnections(connections);
 }
 
 int
-main(int argc, char *argv[])
+main(int argc, char **argv)
 {
-    struct rte_mempool *mbuf_pool, *flow_pool;
+    struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
     uint16_t portid;
-    struct conn_table *conn_table;
+    struct conn_table *connections;
 
     /* Inicializa el Environment Abstraction Layer (EAL) */
     int ret = rte_eal_init(argc, argv);
@@ -351,23 +350,8 @@ main(int argc, char *argv[])
 
     if (mbuf_pool == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear mbuf pool\n");
-
-    flow_pool = rte_mempool_create(
-        "FLOW_POOL",
-        1<<9,
-        sizeof(struct flow),
-        32,
-        0,
-        NULL, NULL,
-        NULL, NULL,
-        rte_socket_id(),
-        0
-    );
     
-    if (flow_pool == NULL)
-        rte_exit(EXIT_FAILURE, "No se puede crear flow_pool\n");
-    
-    conn_table = initConnectionTable("flow_table");
+    connections = initConnectionTable("flow_hash_table", "flow_pool");
 
     /* Inicializa los primeros 2 puertos */
     if (first_portit(0, mbuf_pool) != 0)
@@ -381,7 +365,7 @@ main(int argc, char *argv[])
         printf("\nWARNING: Demasiados lcores habilitados. Solo se usa 1.\n");
 
     /* Llama al loop principal en el lcore principal */
-    l2fwd_main_loop(0, 1, conn_table, flow_pool);
+    l2fwd_main_loop(0, 1, connections);
 
     printf("\n==== Iniciando limpieza ====\n");
 

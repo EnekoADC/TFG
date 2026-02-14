@@ -30,8 +30,3 @@ build/$(APP): $(SRCS-y) $(CONN_OBJ) Makefile $(PC_FILE)
 $(CONN_OBJ): modules/connectionTable.c modules/connectionTable.h
 	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c modules/connectionTable.c -o $@
-
-.PHONY: clean
-clean:
-	rm -f build/$(APP)
-	test -d build && rmdir -p build || true

@@ -10,11 +10,12 @@
 #include <rte_mempool.h>
 #include <rte_malloc.h>
 
-struct conn_table* initConnectionTable(const char *table_name)
+struct conn_table* initConnectionTable(const char *table_name, const char *pool_name)
 {
-    struct conn_table* tcp_table = rte_malloc("TCP_TABLE", sizeof(struct conn_table), 0);
-    if (tcp_table == NULL)
-        rte_exit(EXIT_FAILURE, "No se puede reservar memoria para tcp_table\n");
+    struct conn_table* connections = rte_malloc("CONNECTIONS_TABLE", sizeof(struct conn_table), 0);
+
+    if (connections == NULL)
+        rte_exit(EXIT_FAILURE, "No se puede reservar memoria para la tabla de conexiones\n");
 
     struct rte_hash_parameters params = {
         .name = table_name,
@@ -23,20 +24,42 @@ struct conn_table* initConnectionTable(const char *table_name)
         .hash_func = rte_jhash
     };
     
-    tcp_table->connections = rte_hash_create(&params);
-    tcp_table->current_flows = 0;
+    connections->flow_hash = rte_hash_create(&params);
 
-    return tcp_table;
+    if (connections ->flow_hash == NULL)
+        rte_exit(EXIT_FAILURE, "No se puede crear la tabla hash\n");
+
+    connections->flow_pool = rte_mempool_create(
+        pool_name,
+        MAX_CONN,
+        sizeof(struct flow),
+        32,
+        0,
+        NULL, NULL,
+        NULL, NULL,
+        rte_socket_id(),
+        0
+    );
+    
+    if (connections ->flow_pool == NULL)
+        rte_exit(EXIT_FAILURE, "No se puede crear el flow pool\n");
+
+    connections->first_connection = NULL;
+    connections->last_connection = NULL;
+
+    connections->current_flows = 0;
+
+    return connections;
 }
 
-void updateConnections(struct conn_table *tcp_table, struct rte_mempool *flow_pool, struct five_tuple id, uint32_t pkt_len)
+void updateConnections(struct conn_table *connections, struct five_tuple id, uint32_t pkt_len)
 {
-    int32_t exists = rte_hash_lookup(tcp_table->connections, &id);
+    int32_t exists = rte_hash_lookup(connections->flow_hash, &id);
 
     if (exists != -ENOENT)
     {
        struct flow *flow;
-       int ret = rte_hash_lookup_data(tcp_table->connections, &id, (void **)&flow);
+       int ret = rte_hash_lookup_data(connections->flow_hash, &id, (void **)&flow);
 
         //Actualizar stats
         flow->last_seen = rte_rdtsc();
@@ -46,10 +69,10 @@ void updateConnections(struct conn_table *tcp_table, struct rte_mempool *flow_po
 
     else
     {
-        if (tcp_table->current_flows < MAX_CONN)
+        if (connections->current_flows < MAX_CONN)
         {
             struct flow *new_flow;
-            if (rte_mempool_get(flow_pool, (void **)&new_flow) < 0)
+            if (rte_mempool_get(connections->flow_pool, (void **)&new_flow) < 0)
                 printf("Flow pool saturado temporalmente\n");
 
             else
@@ -61,17 +84,17 @@ void updateConnections(struct conn_table *tcp_table, struct rte_mempool *flow_po
                 new_flow->n_packets = 1;
             }
 
-            int ret = rte_hash_add_key_data(tcp_table->connections, &id, new_flow);
+            int ret = rte_hash_add_key_data(connections->flow_hash, &id, new_flow);
 
             if (ret != 0)
             {
                 printf("Flow no almacenado en la tabla!!!\n");
                 printf("Devolviendo mempool\n");
-                rte_mempool_put(flow_pool, new_flow);
+                rte_mempool_put(connections->flow_pool, new_flow);
             }
 
             else
-                tcp_table->current_flows++;
+                connections->current_flows++;
         }
 
         else
@@ -83,14 +106,14 @@ void updateConnections(struct conn_table *tcp_table, struct rte_mempool *flow_po
 }
 
 
-void showConnections(struct conn_table *tcp_table)
+void showConnections(struct conn_table *connections)
 {
     const void *key;
     void *data;
     uint32_t iter = 0;
 
-    printf("\nTOTAL OF FLOWS: %d\n", tcp_table->current_flows);
-    while (rte_hash_iterate(tcp_table->connections, &key, &data, &iter) >= 0)
+    printf("\nTOTAL OF FLOWS: %d\n", connections->current_flows);
+    while (rte_hash_iterate(connections->flow_hash, &key, &data, &iter) >= 0)
     {
         const struct flow *flow = data;
         const struct five_tuple *id = key;
