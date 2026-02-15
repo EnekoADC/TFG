@@ -158,13 +158,14 @@ void inspect_packet(struct rte_mbuf *mbuf, struct headers pkt_hdrs, struct conn_
 
     printf("\n\n\t\t--- INICIO DEL ANÁLISIS ---\n");
     printf("\n\t--- Analizando trama ETHERNET ---\n");
+    
     printf("MAC origen: %d:%d:%d:%d:%d:%d\n", RTE_ETHER_ADDR_BYTES(&(pkt_hdrs.ethernet_header->src_addr)));
     printf("MAC destino: %d:%d:%d:%d:%d:%d\n", RTE_ETHER_ADDR_BYTES(&(pkt_hdrs.ethernet_header->dst_addr)));
 
-    if (pkt_hdrs.ethernet_header -> ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
+    if (pkt_hdrs.ethernet_header->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
     {
         pkt_hdrs.ip_header = (struct rte_ipv4_hdr *) (pkt_hdrs.ethernet_header + 1);
-
+        
         char ip_src_str[INET_ADDRSTRLEN];
         char ip_dst_str[INET_ADDRSTRLEN];
 
@@ -229,8 +230,8 @@ void inspect_packet(struct rte_mbuf *mbuf, struct headers pkt_hdrs, struct conn_
             case IPPROTO_UDP:
                 pkt_hdrs.udp_header = (struct rte_udp_hdr *) (pkt_hdrs.ip_header + 1);
 
-                src_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->src_port);
-                dst_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->dst_port);
+                src_port = rte_be_to_cpu_16(pkt_hdrs.udp_header->src_port);
+                dst_port = rte_be_to_cpu_16(pkt_hdrs.udp_header->dst_port);
                 
                 printf("\n\t--- Analizando paquete UDP ---\n");
                 printf("Puerto UDP origen: %" PRIu16 "\n", src_port);
@@ -254,7 +255,7 @@ void inspect_packet(struct rte_mbuf *mbuf, struct headers pkt_hdrs, struct conn_
         }
     }
     else
-        printf("Protocolo no reconocido (no es IPv4)\n");
+        printf("Protocolo no reconocido (ethertype = %d)\n", pkt_hdrs.ethernet_header->ether_type);
 
     printf("\t\t--- FIN DEL ANÁLISIS ---\n");
 }

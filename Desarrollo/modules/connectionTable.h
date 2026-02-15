@@ -6,7 +6,7 @@
 #include <rte_hash.h>
 #include <rte_mempool.h>
 
-#define MAX_CONN 512
+#define MAX_CONN 8
 
 struct five_tuple
 {

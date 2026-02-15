@@ -9,6 +9,7 @@
 #include <rte_cycles.h>
 #include <rte_mempool.h>
 #include <rte_malloc.h>
+#include <rte_errno.h>
 
 struct conn_table* initConnectionTable(const char *table_name, const char *pool_name)
 {
@@ -33,7 +34,7 @@ struct conn_table* initConnectionTable(const char *table_name, const char *pool_
         pool_name,
         MAX_CONN,
         sizeof(struct flow),
-        32,
+        0,
         0,
         NULL, NULL,
         NULL, NULL,
@@ -42,7 +43,7 @@ struct conn_table* initConnectionTable(const char *table_name, const char *pool_
     );
     
     if (connections->flow_pool == NULL)
-        rte_exit(EXIT_FAILURE, "No se puede crear el flow pool\n");
+        rte_exit(EXIT_FAILURE, "No se puede crear el flow pool: %s\n", strerror(rte_errno));
 
     connections->first_connection = NULL;
     connections->last_connection = NULL;
@@ -90,58 +91,63 @@ void updateConnections(struct conn_table *connections, struct five_tuple id, uin
 
     else
     {
-        if (connections->current_flows < MAX_CONN)
+        if (connections->current_flows >= MAX_CONN)
         {
-            if (rte_mempool_get(connections->flow_pool, (void **)&new_flow) < 0)
-                printf("Flow pool saturado temporalmente\n");
+            //Eliminar flow más viejo de la tabla hash
+            rte_hash_del_key(connections->flow_hash, &connections->last_connection->id);
 
-            else
-            {
-                //Inserción en tabla hash
-                new_flow->first_seen = rte_rdtsc();
-                new_flow->last_seen = rte_rdtsc();
-                new_flow->id = id;
-                new_flow->n_bytes = pkt_len;
-                new_flow->n_packets = 1;
+            //Eliminar flow más viejo de la lista
+            connections->last_connection = connections->last_connection->prev_flow;
+            rte_mempool_put(connections->flow_pool, connections->last_connection->next_flow);
+            connections->last_connection->next_flow = NULL;
 
-                int ret = rte_hash_add_key_data(connections->flow_hash, &id, new_flow);
-
-                if (ret != 0)
-                {
-                    printf("Flow no almacenado en la tabla!!!\n");
-                    printf("Devolviendo mempool\n");
-                    rte_mempool_put(connections->flow_pool, new_flow);
-                }
-
-                else
-                {   
-                    //Actualización de lista temporal
-                    if (connections->first_connection == NULL)  //Primera inserción
-                    {
-                        new_flow->prev_flow = NULL;
-                        new_flow->next_flow = NULL;
-                        connections->first_connection = new_flow;
-                        connections->last_connection = new_flow;
-                    }
-                    else
-                    {
-                        new_flow->next_flow = connections->first_connection;
-                        new_flow->prev_flow = NULL;
-                        connections->first_connection = new_flow;
-                        new_flow->next_flow->prev_flow = new_flow;
-                    }
-                    
-                    connections->current_flows++;
-                }
-            }    
+            connections->current_flows--;
         }
+
+        if (rte_mempool_get(connections->flow_pool, (void **)&new_flow) < 0)
+                printf("Flow pool saturado temporalmente\n");
 
         else
         {
-            //Eliminar flow más viejo
-            printf("\n\nEsta funcionalidad no se ha implementado todavía\n\n");
-        }
-    }
+            //Inserción en tabla hash
+            new_flow->first_seen = rte_rdtsc();
+            new_flow->last_seen = rte_rdtsc();
+            new_flow->id = id;
+            new_flow->n_bytes = pkt_len;
+            new_flow->n_packets = 1;
+
+            int ret = rte_hash_add_key_data(connections->flow_hash, &id, new_flow);
+
+            if (ret != 0)
+            {
+                printf("Flow no almacenado en la tabla!!!\n");
+                printf("Devolviendo mempool\n");
+                rte_mempool_put(connections->flow_pool, new_flow);
+            }
+
+            else
+            {   
+                //Inserción en lista temporal
+                if (connections->first_connection == NULL)  //Primera inserción
+                {
+                    new_flow->prev_flow = NULL;
+                    new_flow->next_flow = NULL;
+                    connections->first_connection = new_flow;
+                    connections->last_connection = new_flow;
+                }
+
+                else
+                {
+                    new_flow->next_flow = connections->first_connection;
+                    new_flow->prev_flow = NULL;
+                    connections->first_connection = new_flow;
+                    new_flow->next_flow->prev_flow = new_flow;
+                }
+                
+                connections->current_flows++;
+            }
+        } 
+     }
 }
 
 
@@ -152,6 +158,8 @@ void showConnections(struct conn_table *connections)
     uint32_t iter = 0;
 
     printf("\nTOTAL OF FLOWS: %d\n", connections->current_flows);
+
+    printf("\tHash table:\n");
     while (rte_hash_iterate(connections->flow_hash, &key, &data, &iter) >= 0)
     {
         const struct flow *flow = data;
@@ -176,5 +184,33 @@ void showConnections(struct conn_table *connections)
 
         printf("Packets: %-10u Bytes: %-10u\n", flow->n_packets, flow->n_bytes);
     }
+
+    const struct flow *flow = data;
+    
+    printf("\n\tLinked list:\n");
+    for (struct flow *flow = connections->first_connection; flow != NULL; flow = flow->next_flow)
+    {
+        const struct five_tuple *id = &(flow->id);
+
+        char ip_src_str[INET_ADDRSTRLEN];
+        char ip_dst_str[INET_ADDRSTRLEN];
+        char src_port_str[17];
+        char dst_port_str[17];
+
+        inet_ntop(AF_INET, &id->src_ip, ip_src_str, INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &id->dst_ip, ip_dst_str, INET_ADDRSTRLEN);
+        sprintf(src_port_str, "%d", id->src_port);
+        sprintf(dst_port_str, "%d", id->dst_port);
+
+        printf("Showing flow %s%s%s->%s%s%s\n", ip_src_str,
+                                                id->src_port != 0?":":"",
+                                                id->src_port != 0?src_port_str:"",
+                                                ip_dst_str,
+                                                id->dst_port != 0?":":"",
+                                                id->dst_port != 0?dst_port_str:"");
+
+        printf("Packets: %-10u Bytes: %-10u\n", flow->n_packets, flow->n_bytes);
+    }
+    
     printf("\n\n");
 }
