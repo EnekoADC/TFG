@@ -102,3 +102,8 @@ pero la inserción y el reposicionamiento de un flow están ya listos. Como digo
 correcto funcionamiento de la lista y me falta también la parte de eliminación. Intentaré tener para esta noche lista funcional y
 eliminación implementada (y preferiblemente probada) para quedar ya con Eduardo. La eliminación de momento será únicamente cuando
 la tabla se sature, la eliminación por timeout será una característica a futuro.
+
+Bueno, pues tabla de conexiones (primera versión) completada. Eliminar los flujos ha sido mucho más fácil de lo que pensaba. He hecho
+unas pruebas rápidas con un script que lanzaba varios nc en modo udp y listo. No son pruebas reales de esfuerzo/estrés, pero para
+comprobar que no la he liado de primeras están bien. Le enviaré un correo a Eduardo y le enseñaré esta primera versión. A ver qué
+me dice, ¡qué nervios!
