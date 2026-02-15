@@ -89,3 +89,16 @@ TCP, ya que la tabla está orientada a conexiones ICMP, TCP y UDP. Llegado el mo
 Diría que mañana tocará empezar la parte de eliminación de flujos viejos (y por tanto la implementación de la cola enlazada subyacente
 a la tabla hash), y cuando tenga eso listo hablaré con Eduardo Magaña. Espero acabar estas modificaciones el fin de semana y el
 domingo a la noche o el lunes a la mañana mandar el correo a Eduardo.
+
+	·14/2/26·
+He estado modificando las declaraciones de la librería para que un flow incluya punteros a su anterior y su siguiente (temporalmente
+hablando) y he modificado el struct general de tabla de conexiones para tener los punteros de acceso a la lista enlazada e integrar
+el mempool de los flows en la tabla. Lógicamente, el siguiente paso ha sido actualizar todas las cabeceras y las llamadas a
+funciones para que respetaran la nueva declaración.
+
+	·15/2/26·
+Hoy he implementado la lógica de creación de la lista enlazada temporal. No he pasado las pruebas todavía (eso lo haré por la tarde),
+pero la inserción y el reposicionamiento de un flow están ya listos. Como digo, me falta hacer unas pruebas para garantizar el
+correcto funcionamiento de la lista y me falta también la parte de eliminación. Intentaré tener para esta noche lista funcional y
+eliminación implementada (y preferiblemente probada) para quedar ya con Eduardo. La eliminación de momento será únicamente cuando
+la tabla se sature, la eliminación por timeout será una característica a futuro.
