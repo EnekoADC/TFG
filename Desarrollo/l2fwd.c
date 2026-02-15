@@ -152,9 +152,7 @@ void icmpTranslations(uint8_t icmp_type)
 
 }
 
-void inspect_packet(struct rte_mbuf *mbuf,
-                    struct headers pkt_hdrs,
-                    struct conn_table *connections)
+void inspect_packet(struct rte_mbuf *mbuf, struct headers pkt_hdrs, struct conn_table *connections)
 {
     pkt_hdrs.ethernet_header = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
 

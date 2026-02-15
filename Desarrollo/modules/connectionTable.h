@@ -29,6 +29,10 @@ struct flow
     //Estadísticas
     unsigned int n_bytes;
     unsigned int n_packets;
+
+    //Referencias temporales
+    struct flow *prev_flow;
+    struct flow *next_flow;
 };
 
 

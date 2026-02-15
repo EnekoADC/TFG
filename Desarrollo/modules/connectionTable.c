@@ -41,7 +41,7 @@ struct conn_table* initConnectionTable(const char *table_name, const char *pool_
         0
     );
     
-    if (connections ->flow_pool == NULL)
+    if (connections->flow_pool == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear el flow pool\n");
 
     connections->first_connection = NULL;
@@ -54,47 +54,86 @@ struct conn_table* initConnectionTable(const char *table_name, const char *pool_
 
 void updateConnections(struct conn_table *connections, struct five_tuple id, uint32_t pkt_len)
 {
-    int32_t exists = rte_hash_lookup(connections->flow_hash, &id);
+    struct flow *new_flow;
+    int ret = rte_hash_lookup_data(connections->flow_hash, &id, (void **)&new_flow);
 
-    if (exists != -ENOENT)
+    if (ret == -EINVAL)
+        printf("\nParámetros incorrectos en la llamada a lookup data!!!\n");
+
+    if (ret != -ENOENT)
     {
-       struct flow *flow;
-       int ret = rte_hash_lookup_data(connections->flow_hash, &id, (void **)&flow);
+        //Actualizar orden temporal
+        if (connections->first_connection != connections->last_connection)
+        {
+            if (connections->first_connection != new_flow)
+            {
+                if (new_flow->next_flow == NULL)    //Era el último flow
+                    connections->last_connection = new_flow->prev_flow;
+
+                new_flow->prev_flow->next_flow = new_flow->next_flow;
+                if (new_flow->next_flow != NULL)
+                    new_flow->next_flow->prev_flow = new_flow->prev_flow;
+
+                new_flow->next_flow = connections->first_connection;
+                new_flow->prev_flow = NULL;
+
+                connections->first_connection->prev_flow = new_flow;
+                connections->first_connection = new_flow;
+            }
+        }
 
         //Actualizar stats
-        flow->last_seen = rte_rdtsc();
-        flow->n_bytes += pkt_len;
-        flow->n_packets += 1;
+        new_flow->last_seen = rte_rdtsc();
+        new_flow->n_bytes += pkt_len;
+        new_flow->n_packets += 1;
     }
 
     else
     {
         if (connections->current_flows < MAX_CONN)
         {
-            struct flow *new_flow;
             if (rte_mempool_get(connections->flow_pool, (void **)&new_flow) < 0)
                 printf("Flow pool saturado temporalmente\n");
 
             else
             {
+                //Inserción en tabla hash
                 new_flow->first_seen = rte_rdtsc();
                 new_flow->last_seen = rte_rdtsc();
                 new_flow->id = id;
                 new_flow->n_bytes = pkt_len;
                 new_flow->n_packets = 1;
-            }
 
-            int ret = rte_hash_add_key_data(connections->flow_hash, &id, new_flow);
+                int ret = rte_hash_add_key_data(connections->flow_hash, &id, new_flow);
 
-            if (ret != 0)
-            {
-                printf("Flow no almacenado en la tabla!!!\n");
-                printf("Devolviendo mempool\n");
-                rte_mempool_put(connections->flow_pool, new_flow);
-            }
+                if (ret != 0)
+                {
+                    printf("Flow no almacenado en la tabla!!!\n");
+                    printf("Devolviendo mempool\n");
+                    rte_mempool_put(connections->flow_pool, new_flow);
+                }
 
-            else
-                connections->current_flows++;
+                else
+                {   
+                    //Actualización de lista temporal
+                    if (connections->first_connection == NULL)  //Primera inserción
+                    {
+                        new_flow->prev_flow = NULL;
+                        new_flow->next_flow = NULL;
+                        connections->first_connection = new_flow;
+                        connections->last_connection = new_flow;
+                    }
+                    else
+                    {
+                        new_flow->next_flow = connections->first_connection;
+                        new_flow->prev_flow = NULL;
+                        connections->first_connection = new_flow;
+                        new_flow->next_flow->prev_flow = new_flow;
+                    }
+                    
+                    connections->current_flows++;
+                }
+            }    
         }
 
         else
