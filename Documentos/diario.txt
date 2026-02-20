@@ -107,3 +107,10 @@ Bueno, pues tabla de conexiones (primera versión) completada. Eliminar los fluj
 unas pruebas rápidas con un script que lanzaba varios nc en modo udp y listo. No son pruebas reales de esfuerzo/estrés, pero para
 comprobar que no la he liado de primeras están bien. Le enviaré un correo a Eduardo y le enseñaré esta primera versión. A ver qué
 me dice, ¡qué nervios!
+
+	·20/2/2026·
+Confieso que estos días me he despistado un poco. Desde que le mandé el correo a Magaña me he relajado en ausencia de respuesta por
+su parte. Para calmar mi agitada conciencia he seguido leyendo la documentación de DPDK, pero me empecé a agobiar porque una vez
+lista la tabla parecía que ya estaba todo hecho y que me había vuelto a estancar. Pero hoy he decidido retomar la parte de la
+exportación de estadísticas (siguiendo el protocolo IPFIX). Así que a eso me he dedicado hoy, a informarme sobre este protocolo e
+investigar sobre cómo implementarlo.

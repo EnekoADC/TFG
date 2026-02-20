@@ -5,7 +5,7 @@
 APP = dpdk-l2fwd
 
 # Archivos fuente
-SRCS-y := l2fwd.c
+SRCS-y := sonda-dpdk.c
 
 # Carpeta de objetos
 OBJDIR = build/objects
