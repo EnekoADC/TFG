@@ -2,10 +2,10 @@
 # Copyright(c) 2010-2014 Intel Corporation
 
 # Nombre del binario
-APP = dpdk-l2fwd
+APP = ip-lock
 
 # Archivos fuente
-SRCS-y := sonda-dpdk.c
+SRCS-y := ip-lock.c
 
 # Carpeta de objetos
 OBJDIR = build/objects
