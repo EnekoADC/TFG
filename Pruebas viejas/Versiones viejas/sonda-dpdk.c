@@ -16,7 +16,6 @@
 #include <rte_tcp.h>
 #include <rte_udp.h>
 #include <rte_mempool.h>
-#include <rte_jhash.h>
 
 #include "modules/connectionTable.h"
 
@@ -25,8 +24,6 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
-#define MAX_STRING_LENGTH 150
-#define MAX_IPS 9999
 
 struct headers
 {
@@ -132,12 +129,142 @@ first_portit(uint16_t port, struct rte_mempool *mbuf_pool)
     return 0;
 }
 
+void icmpTranslations(uint8_t icmp_type)
+{
+    switch (icmp_type)
+    {
+        case RTE_ICMP_TYPE_ECHO_REPLY:
+            printf("Recibido echo reply\n");
+            break;
+
+        case RTE_ICMP_TYPE_ECHO_REQUEST:
+            printf("Recibido echo request\n");
+            break;
+
+        case RTE_ICMP_TYPE_DEST_UNREACHABLE:
+            printf("Recibido destination unreachable\n");
+            break;
+
+        default:
+            printf("Recibido ICMP no reconocido\n");
+            break;
+    }
+
+}
+
+void inspect_packet(struct rte_mbuf *mbuf, struct headers pkt_hdrs, struct conn_table *connections)
+{
+    pkt_hdrs.ethernet_header = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+
+    printf("\n\n\t\t--- INICIO DEL ANÁLISIS ---\n");
+    printf("\n\t--- Analizando trama ETHERNET ---\n");
+    
+    printf("MAC origen: %d:%d:%d:%d:%d:%d\n", RTE_ETHER_ADDR_BYTES(&(pkt_hdrs.ethernet_header->src_addr)));
+    printf("MAC destino: %d:%d:%d:%d:%d:%d\n", RTE_ETHER_ADDR_BYTES(&(pkt_hdrs.ethernet_header->dst_addr)));
+
+    if (pkt_hdrs.ethernet_header->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
+    {
+        pkt_hdrs.ip_header = (struct rte_ipv4_hdr *) (pkt_hdrs.ethernet_header + 1);
+        
+        char ip_src_str[INET_ADDRSTRLEN];
+        char ip_dst_str[INET_ADDRSTRLEN];
+
+        printf("\n\t--- Analizando paquete IP ---\n");
+
+        inet_ntop(AF_INET, &pkt_hdrs.ip_header->src_addr, ip_src_str, INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &pkt_hdrs.ip_header->dst_addr, ip_dst_str, INET_ADDRSTRLEN);
+
+        printf("IP origen: %s -> IP destino: %s\n", ip_src_str, ip_dst_str);
+
+        //ID de la conexión:
+        struct five_tuple flow_key;
+
+        //Puertos
+        uint16_t src_port;
+        uint16_t dst_port;
+
+        switch (pkt_hdrs.ip_header->next_proto_id)
+        {
+            case IPPROTO_ICMP:
+                pkt_hdrs.icmp_header = (struct rte_icmp_hdr *) (pkt_hdrs.ip_header + 1);
+
+                printf("\n\t--- Analizando paquete ICMP ---\n");
+
+                flow_key = (struct five_tuple)
+                {
+                    .src_ip = pkt_hdrs.ip_header->src_addr,
+                    .dst_ip = pkt_hdrs.ip_header->dst_addr,
+                    .src_port = 0,
+                    .dst_port = 0,
+                    .proto = IPPROTO_ICMP
+                };
+
+                icmpTranslations(pkt_hdrs.icmp_header->icmp_type);
+                updateConnections(connections, flow_key, rte_pktmbuf_pkt_len(mbuf));
+                
+                break;
+
+            case IPPROTO_TCP:
+                pkt_hdrs.tcp_header = (struct rte_tcp_hdr *) (pkt_hdrs.ip_header + 1);
+
+                src_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->src_port);
+                dst_port = rte_be_to_cpu_16(pkt_hdrs.tcp_header->dst_port);
+                
+                printf("\n\t--- Analizando paquete TCP ---\n");
+                printf("Puerto TCP origen: %" PRIu16 "\n", src_port);
+                printf("Puerto TCP destino: %" PRIu16 "\n", dst_port);
+
+                flow_key = (struct five_tuple)
+                {
+                    .src_ip = pkt_hdrs.ip_header->src_addr,
+                    .dst_ip = pkt_hdrs.ip_header->dst_addr,
+                    .src_port = src_port,
+                    .dst_port = dst_port,
+                    .proto = IPPROTO_TCP
+                };
+
+                updateConnections(connections, flow_key, rte_pktmbuf_pkt_len(mbuf));
+
+                break;
+
+            case IPPROTO_UDP:
+                pkt_hdrs.udp_header = (struct rte_udp_hdr *) (pkt_hdrs.ip_header + 1);
+
+                src_port = rte_be_to_cpu_16(pkt_hdrs.udp_header->src_port);
+                dst_port = rte_be_to_cpu_16(pkt_hdrs.udp_header->dst_port);
+                
+                printf("\n\t--- Analizando paquete UDP ---\n");
+                printf("Puerto UDP origen: %" PRIu16 "\n", src_port);
+                printf("Puerto UDP destino: %" PRIu16 "\n", dst_port);
+
+                flow_key = (struct five_tuple)
+                {
+                    .src_ip = pkt_hdrs.ip_header->src_addr,
+                    .dst_ip = pkt_hdrs.ip_header->dst_addr,
+                    .src_port = src_port,
+                    .dst_port = dst_port,
+                    .proto = IPPROTO_UDP
+                };
+
+                updateConnections(connections, flow_key, rte_pktmbuf_pkt_len(mbuf));
+
+
+            default:
+                printf("Protocolo no reconocido (%d)\n", pkt_hdrs.ip_header->next_proto_id);
+                break;
+        }
+    }
+    else
+        printf("Protocolo no reconocido (ethertype = %d)\n", pkt_hdrs.ethernet_header->ether_type);
+
+    printf("\t\t--- FIN DEL ANÁLISIS ---\n");
+}
+
 static void
 read_send(uint16_t first_port, uint16_t second_port, struct conn_table *connections)
 {
     //Variables de lectura de paquetes
     struct rte_mbuf *bufs[BURST_SIZE];
-    struct rte_mbuf *approved[BURST_SIZE];
     uint16_t nb_rx;
     uint16_t nb_tx;
     uint16_t i;
@@ -150,10 +277,12 @@ read_send(uint16_t first_port, uint16_t second_port, struct conn_table *connecti
 
     if (nb_rx > 0)
     {
+        //Analiza cada paquete antes de enviarlo
+        for (i = 0; i < nb_rx; i++)
+            inspect_packet(bufs[i], packet_headers, connections);
+
         /* Envía los paquetes por el puerto de salida */
         nb_tx = rte_eth_tx_burst(second_port, 0, bufs, nb_rx);
-
-        //blacklist(bufs, approved);
     }
 
     /* Libera los paquetes que no se pudieron enviar */
@@ -163,44 +292,6 @@ read_send(uint16_t first_port, uint16_t second_port, struct conn_table *connecti
             rte_pktmbuf_free(bufs[i]);
     }
 }
-
-void registerIPs(struct rte_hash *banned_ip_list, const char *ip_filename)
-{
-    FILE *ip_file = fopen(ip_filename, "r");
-    char buffer[MAX_STRING_LENGTH];
-    int32_t bin_ip;
-
-    if (ip_file != NULL)
-    {
-        char *ip_string;
-        int i = 1;
-        while (!feof(ip_file))
-        {
-            if (fgets(buffer, MAX_STRING_LENGTH, ip_file) != NULL)
-            {
-                ip_string = strtok(buffer, "\n");   //Limpio la cadena
-                if (inet_pton(AF_INET, ip_string, &bin_ip) == 1)
-                {
-                    int ret = rte_hash_add_key(banned_ip_list, &bin_ip);
-                    if (ret < 0)
-                        printf("Error insertando IP %s (%u) en la lista\n", buffer, bin_ip);
-                }
-                else
-                    printf("Error en la línea %d: %s\n", i, ip_string);      
-            }
-
-            i++;
-        }
-
-        fclose(ip_file);
-    }
-    
-    else
-        printf("Error abriendo el fichero de IPs\n");
-}
-
-void blacklist(struct rte_mbuf **, struct rte_mbuf **)
-{}
 
 /* Loop principal de forwarding */
 static void
@@ -232,7 +323,6 @@ main(int argc, char **argv)
     unsigned nb_ports;
     uint16_t portid;
     struct conn_table *connections;
-    struct rte_hash *banned_ips;
 
     /* Inicializa el Environment Abstraction Layer (EAL) */
     int ret = rte_eal_init(argc, argv);
@@ -241,19 +331,6 @@ main(int argc, char **argv)
 
     argc -= ret;
     argv += ret;
-
-    const struct rte_hash_parameters ip_hash_params = {
-        .name = "ip_hash",
-        .entries = MAX_IPS,
-        .hash_func = rte_jhash,
-        .key_len = sizeof(uint32_t)
-    };
-
-    banned_ips = rte_hash_create(&ip_hash_params);
-
-    /* Leo el fichero de IPs */
-    const char *ip_filename = *(++argv) == NULL ? "banned" : *argv;
-    registerIPs(banned_ips, ip_filename);
 
     /* Registrar manejadores de señales */
     signal(SIGINT, signal_handler);
