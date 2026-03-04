@@ -19,14 +19,13 @@
 #include <rte_jhash.h>
 
 #include "modules/connectionTable.h"
+#include "modules/ipBlocker.h"
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
-#define MAX_STRING_LENGTH 150
-#define MAX_IPS 9999
 
 struct headers
 {
@@ -164,87 +163,10 @@ read_send(uint16_t first_port, uint16_t second_port, struct conn_table *connecti
     }
 }
 
-void registerIPs(struct rte_hash *banned_ip_list, const char *ip_filename)
-{
-    FILE *ip_file = fopen(ip_filename, "r");
-    char buffer[MAX_STRING_LENGTH];
-    int32_t bin_ip;
-
-    if (ip_file != NULL)
-    {
-        char *ip_string;
-        int i = 1;
-        while (!feof(ip_file))
-        {
-            if (fgets(buffer, MAX_STRING_LENGTH, ip_file) != NULL)
-            {
-                ip_string = strtok(buffer, "\n");   //Limpio la cadena
-                if (inet_pton(AF_INET, ip_string, &bin_ip) == 1)
-                {
-                    int ret = rte_hash_add_key(banned_ip_list, &bin_ip);
-                    if (ret < 0)
-                        printf("Error insertando IP %s (%u) en la lista\n", buffer, bin_ip);
-                }
-                else
-                    printf("Error en la línea %d: %s\n", i, ip_string);      
-            }
-
-            i++;
-        }
-
-        fclose(ip_file);
-    }
-    
-    else
-        printf("Error abriendo el fichero de IPs\n");
-}
 
 void blacklist(struct rte_hash *banned_list, struct rte_mbuf **raw_batch, struct rte_mbuf **clean_batch)
 {
-    struct rte_mbuf *pkt;
-    uint16_t offset;
-    uint32_t ip;
-    int next_clean_pkt = 0;
-
-    for (int i = 0; i < BURST_SIZE; i++)
-    {
-        offset = sizeof(struct rte_ether_hdr);
-        pkt = raw_batch[i];
-
-        uint16_t eth_type = rte_be_to_cpu_16(rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *)->ether_type);
-
-        while (eth_type == RTE_ETHER_TYPE_VLAN || eth_type == RTE_ETHER_TYPE_QINQ)
-        {
-            eth_type = rte_be_to_cpu_16(rte_pktmbuf_mtod_offset(pkt, struct rte_vlan_hdr *, offset)->eth_proto);
-            offset += sizeof(struct rte_vlan_hdr);
-        }
-        
-        if (eth_type == RTE_ETHER_TYPE_IPV4)
-        {
-            ip = rte_pktmbuf_mtod_offset(pkt, struct rte_ipv4_hdr *, offset)->dst_addr;
-
-            int32_t ret = rte_hash_lookup(banned_list, (const void *) &ip);
-            if (ret > 0)
-            {
-                //recopilar estadísticas
-            }
-
-            else if (ret == -EINVAL)
-                printf("Error en los parámetros de búsqueda (tabla hash)\n");            
-
-            else if (ret == -ENOENT)
-            {
-                clean_batch[next_clean_pkt] = pkt;
-                next_clean_pkt++;
-            }
-
-            else
-                printf("Error inesperado en la búsqueda en la tabla hash\n");
-        }
-
-        else
-            printf("No es un paquete IPv4 (ethertype: %u)\n", eth_type);
-    }
+    
 }
 
 /* Loop principal de forwarding */
@@ -277,7 +199,7 @@ main(int argc, char **argv)
     unsigned nb_ports;
     uint16_t portid;
     struct conn_table *connections;
-    struct rte_hash *banned_ips;
+    struct ip_blocker *blocker;
 
     /* Inicializa el Environment Abstraction Layer (EAL) */
     int ret = rte_eal_init(argc, argv);
@@ -287,18 +209,11 @@ main(int argc, char **argv)
     argc -= ret;
     argv += ret;
 
-    const struct rte_hash_parameters ip_hash_params = {
-        .name = "ip_hash",
-        .entries = MAX_IPS,
-        .hash_func = rte_jhash,
-        .key_len = sizeof(uint32_t)
-    };
-
-    banned_ips = rte_hash_create(&ip_hash_params);
+    blocker = createIPBlocker("hash_ip_blocker", "pool_ip_blocker");
 
     /* Leo el fichero de IPs */
     const char *ip_filename = *(++argv) == NULL ? "banned" : *argv;
-    registerIPs(banned_ips, ip_filename);
+    registerIPs(blocker, ip_filename);
 
     /* Registrar manejadores de señales */
     signal(SIGINT, signal_handler);
