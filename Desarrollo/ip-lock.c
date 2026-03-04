@@ -199,8 +199,53 @@ void registerIPs(struct rte_hash *banned_ip_list, const char *ip_filename)
         printf("Error abriendo el fichero de IPs\n");
 }
 
-void blacklist(struct rte_mbuf **, struct rte_mbuf **)
-{}
+void blacklist(struct rte_hash *banned_list, struct rte_mbuf **raw_batch, struct rte_mbuf **clean_batch)
+{
+    struct rte_mbuf *pkt;
+    uint16_t offset;
+    uint32_t ip;
+    int next_clean_pkt = 0;
+
+    for (int i = 0; i < BURST_SIZE; i++)
+    {
+        offset = sizeof(struct rte_ether_hdr);
+        pkt = raw_batch[i];
+
+        uint16_t eth_type = rte_be_to_cpu_16(rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *)->ether_type);
+
+        while (eth_type == RTE_ETHER_TYPE_VLAN || eth_type == RTE_ETHER_TYPE_QINQ)
+        {
+            eth_type = rte_be_to_cpu_16(rte_pktmbuf_mtod_offset(pkt, struct rte_vlan_hdr *, offset)->eth_proto);
+            offset += sizeof(struct rte_vlan_hdr);
+        }
+        
+        if (eth_type == RTE_ETHER_TYPE_IPV4)
+        {
+            ip = rte_pktmbuf_mtod_offset(pkt, struct rte_ipv4_hdr *, offset)->dst_addr;
+
+            int32_t ret = rte_hash_lookup(banned_list, (const void *) &ip);
+            if (ret > 0)
+            {
+                //recopilar estadísticas
+            }
+
+            else if (ret == -EINVAL)
+                printf("Error en los parámetros de búsqueda (tabla hash)\n");            
+
+            else if (ret == -ENOENT)
+            {
+                clean_batch[next_clean_pkt] = pkt;
+                next_clean_pkt++;
+            }
+
+            else
+                printf("Error inesperado en la búsqueda en la tabla hash\n");
+        }
+
+        else
+            printf("No es un paquete IPv4 (ethertype: %u)\n", eth_type);
+    }
+}
 
 /* Loop principal de forwarding */
 static void
