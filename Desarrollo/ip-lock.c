@@ -17,8 +17,8 @@
 #include <rte_udp.h>
 #include <rte_mempool.h>
 #include <rte_jhash.h>
+#include <rte_flow.h>
 
-#include "modules/connectionTable.h"
 #include "modules/ipBlocker.h"
 
 #define RX_RING_SIZE 1024
@@ -26,15 +26,11 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
+#define MAX_QUEUE_SIZE 256
 
-struct headers
-{
-    struct rte_ether_hdr *ethernet_header;
-    struct rte_ipv4_hdr *ip_header;
-    struct rte_icmp_hdr *icmp_header;
-    struct rte_tcp_hdr *tcp_header;
-    struct rte_udp_hdr *udp_header;
-};
+/* rte_flow_flush: para limpiar las reglas instaladas
+    configure_port_template para integrar la configuración rte_flow
+     */
 
 /* Variable global para controlar la terminación */
 static volatile bool force_quit = false;
@@ -44,10 +40,35 @@ static void
 signal_handler(int signum)
 {
     if (signum == SIGINT || signum == SIGTERM) {
-        printf("\n\nSeñal %d recibida, preparando para salir...\n",
-                signum);
+        printf("\n\nSeñal %d recibida, preparando para salir...\n", signum);
         force_quit = true;
     }
+}
+
+
+//Configura el puerto para usar rte_flow
+static void
+configure_port_template(uint16_t port_id, uint32_t counters)
+{
+	int ret;
+	uint16_t std_queue;
+	struct rte_flow_error error;
+	struct rte_flow_queue_attr queue_attr[RTE_MAX_LCORE];
+	const struct rte_flow_queue_attr *attr_list[RTE_MAX_LCORE];
+	struct rte_flow_port_attr port_attr = { .nb_counters = counters };
+
+	for (std_queue = 0; std_queue < RTE_MAX_LCORE; std_queue++) {
+		queue_attr[std_queue].size = MAX_QUEUE_SIZE;
+		attr_list[std_queue] = &queue_attr[std_queue];
+	}
+
+	ret = rte_flow_configure(port_id, &port_attr,
+				 1, attr_list, &error);
+	if (ret != 0)
+		rte_exit(EXIT_FAILURE,
+			 "rte_flow_configure:err=%d, port=%u\n",
+			 ret, port_id);
+	printf(":: Configuring template port [%d] Done ..\n", port_id);
 }
 
 /* Configuración básica de los puertos */
@@ -59,42 +80,68 @@ static const struct rte_eth_conf port_conf_default = {
 
 /* Inicializa un puerto ethernet */
 static inline int
-first_portit(uint16_t port, struct rte_mempool *mbuf_pool)
+init_port(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t *hw_list_size_out)
 {
-    struct rte_eth_conf port_conf = port_conf_default;
+    int retval;
+    uint16_t q;
+
     const uint16_t rx_rings = 1, tx_rings = 1;
     uint16_t nb_rxd = RX_RING_SIZE;
     uint16_t nb_txd = TX_RING_SIZE;
-    int retval;
-    uint16_t q;
-    struct rte_eth_dev_info dev_info;
+
+    /* Ethernet port configured with default settings. */
+	struct rte_eth_conf port_conf = {
+		.txmode = {
+			.offloads =
+				RTE_ETH_TX_OFFLOAD_VLAN_INSERT |
+				RTE_ETH_TX_OFFLOAD_IPV4_CKSUM  |
+				RTE_ETH_TX_OFFLOAD_UDP_CKSUM   |
+				RTE_ETH_TX_OFFLOAD_TCP_CKSUM   |
+				RTE_ETH_TX_OFFLOAD_SCTP_CKSUM  |
+				RTE_ETH_TX_OFFLOAD_TCP_TSO,
+		},
+	};
+
     struct rte_eth_txconf txconf;
+	struct rte_eth_rxconf rxq_conf;
+    struct rte_eth_dev_info dev_info;
 
     if (!rte_eth_dev_is_valid_port(port))
-        return -1;
+        rte_exit(EXIT_FAILURE, "Invalid port!!!\n");
 
     retval = rte_eth_dev_info_get(port, &dev_info);
-    if (retval != 0) {
-        printf("Error obteniendo info del dispositivo: %s\n",
-               strerror(-retval));
-        return retval;
-    }
+    if (retval != 0)
+        rte_exit(EXIT_FAILURE,
+			"Error during getting device (port %u) info: %s\n",
+			port, strerror(-retval));
+
+    port_conf.txmode.offloads &= dev_info.tx_offload_capa;
+	printf("\n:: initializing port: %d\n", port);
 
     /* Configura el dispositivo ethernet */
     retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
     if (retval != 0)
-        return retval;
+        rte_exit(EXIT_FAILURE,
+			":: cannot configure device: err=%d, port=%u\n",
+			retval, port);
 
     retval = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
     if (retval != 0)
-        return retval;
+        rte_exit(EXIT_FAILURE,
+			"Error adjusting descriptors in port %u. Error = %s\n",
+			port, strerror(-retval));
+
+    rxq_conf = dev_info.default_rxconf;
+	rxq_conf.offloads = port_conf.rxmode.offloads;
 
     /* Asigna y configura las colas RX */
     for (q = 0; q < rx_rings; q++) {
         retval = rte_eth_rx_queue_setup(port, q, nb_rxd,
-                rte_eth_dev_socket_id(port), NULL, mbuf_pool);
+                rte_eth_dev_socket_id(port), &rxq_conf, mbuf_pool);
         if (retval < 0)
-            return retval;
+            rte_exit(EXIT_FAILURE,
+				":: Rx queue setup failed: err=%d, port=%u\n",
+				retval, port);
     }
 
     txconf = dev_info.default_txconf;
@@ -105,91 +152,134 @@ first_portit(uint16_t port, struct rte_mempool *mbuf_pool)
         retval = rte_eth_tx_queue_setup(port, q, nb_txd,
                 rte_eth_dev_socket_id(port), &txconf);
         if (retval < 0)
-            return retval;
+            rte_exit(EXIT_FAILURE,
+				":: Tx queue setup failed: err=%d, port=%u\n",
+				retval, port);
     }
+
+    /* Habilita el modo promiscuo */
+    retval = rte_eth_promiscuous_enable(port);
+    printf(":: promiscuous mode enabled\n");
+    if (retval != 0)
+        rte_exit(EXIT_FAILURE,
+            ":: promiscuous mode enable failed: err=%s, port=%u\n",
+            rte_strerror(-retval), port);
 
     /* Arranca el dispositivo */
     retval = rte_eth_dev_start(port);
     if (retval < 0)
-        return retval;
+        rte_exit(EXIT_FAILURE,
+			"rte_eth_dev_start:err=%d, port=%u\n",
+			retval, port);
 
-    /* Muestra la dirección MAC del puerto */
-    struct rte_ether_addr addr;
-    retval = rte_eth_macaddr_get(port, &addr);
+    printf(":: initializing port: %d done\n", port);
+
+    /* Configuro el máximo número de IPs bloqueables por hardware */
+    struct rte_flow_port_info port_info = {0};
+    struct rte_flow_error error = {0};
+    
+    retval = rte_flow_info_get(port, &port_info, NULL, &error);
+
     if (retval != 0)
-        return retval;
+    {
+        printf(":: Port %d: rte_flow no soportado por NIC :(\n", port);
+        if (hw_list_size_out != NULL)
+            *hw_list_size_out = 0;
+            
+        return 0;
+    }
 
-    printf("Puerto %u MAC: %02" PRIx8 ":%02" PRIx8 ":%02" PRIx8
-           ":%02" PRIx8 ":%02" PRIx8 ":%02" PRIx8 "\n",
-            port, RTE_ETHER_ADDR_BYTES(&addr));
+    uint32_t hw_list_max_size = 0.8 * port_info.max_nb_counters;
 
-    /* Habilita modo promiscuo */
-    retval = rte_eth_promiscuous_enable(port);
-    if (retval != 0)
-        return retval;
+    if (hw_list_size_out != NULL)
+            *hw_list_size_out = hw_list_max_size;
+    
+    /* Adds rules engine configuration.  */
+	retval = rte_eth_dev_stop(port);
+	if (retval < 0)
+		rte_exit(EXIT_FAILURE,
+			"rte_eth_dev_stop:err=%d, port=%u\n",
+			retval, port);
 
-    return 0;
+
+	configure_port_template(port, hw_list_max_size);
+
+	retval = rte_eth_dev_start(port);
+	if (retval < 0)
+		rte_exit(EXIT_FAILURE,
+			"rte_eth_dev_start:err=%d, port=%u\n",
+			retval, port);
+	/*  End of adding rules engine configuration. */
+
+    // /* Muestra la dirección MAC del puerto */
+    // struct rte_ether_addr addr;
+    // retval = rte_eth_macaddr_get(port, &addr);
+    // if (retval != 0)
+    //     return retval;
+
+    // printf("Puerto %u MAC: %02" PRIx8 ":%02" PRIx8 ":%02" PRIx8
+    //        ":%02" PRIx8 ":%02" PRIx8 ":%02" PRIx8 "\n",
+    //         port, RTE_ETHER_ADDR_BYTES(&addr));
+
+
+    return 1;
 }
 
 static void
-read_send(uint16_t first_port, uint16_t second_port, struct conn_table *connections)
+read_send(uint16_t rx_port, uint16_t tx_port, struct banned_ips *banned_ips)
 {
     //Variables de lectura de paquetes
     struct rte_mbuf *bufs[BURST_SIZE];
     struct rte_mbuf *approved[BURST_SIZE];
-    uint16_t nb_rx;
-    uint16_t nb_tx;
-    uint16_t i;
-
-    //Variables de inspección de paquetes
-    struct headers packet_headers;
+    uint16_t nb_rx, nb_tx, i, clean_pkts;
 
     /* Recibe ráfaga de paquetes del puerto de entrada */
-    nb_rx = rte_eth_rx_burst(first_port, 0, bufs, BURST_SIZE);
-
+    nb_rx = rte_eth_rx_burst(rx_port, 0, bufs, BURST_SIZE);
+    
     if (nb_rx > 0)
-    {
+    {        
+        clean_pkts = blacklist(banned_ips, bufs, approved, nb_rx);
+        
         /* Envía los paquetes por el puerto de salida */
-        nb_tx = rte_eth_tx_burst(second_port, 0, bufs, nb_rx);
+        nb_tx = rte_eth_tx_burst(tx_port, 0, approved, clean_pkts);
 
-        //blacklist(bufs, approved);
+        /* Libera los paquetes que no se pudieron enviar */
+        if (unlikely(nb_tx < clean_pkts))
+        {
+            for (i = nb_tx; i < clean_pkts; i++)
+                rte_pktmbuf_free(approved[i]);
+        }
     }
 
-    /* Libera los paquetes que no se pudieron enviar */
-    if (unlikely(nb_tx < nb_rx))
+    for (i = 0; i < nb_rx; i++)
     {
-        for (i = nb_tx; i < nb_rx; i++)
+        if (bufs[i] != NULL)
             rte_pktmbuf_free(bufs[i]);
     }
-}
-
-
-void blacklist(struct rte_hash *banned_list, struct rte_mbuf **raw_batch, struct rte_mbuf **clean_batch)
-{
     
 }
 
+
+
 /* Loop principal de forwarding */
 static void
-l2fwd_main_loop(uint16_t first_port, uint16_t second_port, struct conn_table *connections)
+l2fwd_main_loop(uint16_t *ports, struct banned_ips *banned_ips)
 {
     printf("\nCore %u haciendo L2 forwarding entre puertos %u y %u\n",
-            rte_lcore_id(), first_port, second_port);
+            rte_lcore_id(), ports[0], ports[1]);
     printf("Presiona Ctrl+C para terminar limpiamente\n\n");
 
     /* Loop de RX/TX con condición de salida */
     while (!force_quit)
     {
         //Reenvío de if0 a if1
-        read_send(first_port, second_port, connections);
+        read_send(ports[0], ports[1], banned_ips);
 
         //Reenvío de if1 a if0
-        read_send(second_port, first_port, connections);
+        read_send(ports[1], ports[0], banned_ips);
     }
 
     printf("\nSaliendo del loop de forwarding...\n");
-
-    showConnections(connections);
 }
 
 int
@@ -198,8 +288,9 @@ main(int argc, char **argv)
     struct rte_mempool *mbuf_pool;
     unsigned nb_ports;
     uint16_t portid;
-    struct conn_table *connections;
-    struct ip_blocker *blocker;
+    struct banned_ips *blocker;
+    uint16_t ports [] = {0, 1};
+    uint8_t hw_filter_supported = 1;    //Máscara de filtrado HW
 
     /* Inicializa el Environment Abstraction Layer (EAL) */
     int ret = rte_eal_init(argc, argv);
@@ -208,13 +299,13 @@ main(int argc, char **argv)
 
     argc -= ret;
     argv += ret;
-
-    blocker = createIPBlocker("hash_ip_blocker", "pool_ip_blocker");
+    
+    /* Inicializo el bloqueador software */
+    blocker = createIPBlocker("hash_ip_blocker", "pool_ip_blocker"); 
 
     /* Leo el fichero de IPs */
     const char *ip_filename = *(++argv) == NULL ? "banned" : *argv;
-    registerIPs(blocker, ip_filename);
-
+    
     /* Registrar manejadores de señales */
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
@@ -232,22 +323,20 @@ main(int argc, char **argv)
 
     if (mbuf_pool == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear mbuf pool\n");
-    
-    connections = initConnectionTable("flow_hash_table", "flow_pool");
 
-    /* Inicializa los primeros 2 puertos */
-    if (first_portit(0, mbuf_pool) != 0)
-        rte_exit(EXIT_FAILURE, "No se puede inicializar el puerto 0\n");
+    uint32_t hw_list_max_size;
+    /* Inicializa los puertos seleccionados */
+    hw_filter_supported &= init_port(ports[0], mbuf_pool, &hw_list_max_size);
+    hw_filter_supported &= init_port(ports[1], mbuf_pool, NULL);
 
-    if (first_portit(1, mbuf_pool) != 0)
-        rte_exit(EXIT_FAILURE, "No se puede inicializar el puerto 1\n");
+    registerIPs(blocker, hw_list_max_size, ip_filename, hw_filter_supported);    
 
     /* Verifica que tengamos al menos un lcore disponible */
     if (rte_lcore_count() > 1)
         printf("\nWARNING: Demasiados lcores habilitados. Solo se usa 1.\n");
 
     /* Llama al loop principal en el lcore principal */
-    l2fwd_main_loop(0, 1, connections);
+    l2fwd_main_loop(ports, blocker);
 
     printf("\n==== Iniciando limpieza ====\n");
 

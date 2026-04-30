@@ -12,12 +12,47 @@
 #include <rte_errno.h>
 #include <rte_ether.h>
 #include <rte_ip4.h>
+#include <rte_flow.h>
+
+#include "common.h"
+#include "snippets/snippet_match_ipv4_block.h"
 
 #define MAX_STRING_LENGTH 150
+#define LIST_CHUNK 512
+#define INCOME_PORT 0
+#define USE_TEMPLATE_API 1
 
-struct ip_blocker* createIPBlocker(const char *table_name, const char *pool_name)
+//Auxiliar TAD dynamic vector
+uint32_t *ip_list;
+uint32_t ip_list_capacity = 0;
+uint32_t ip_list_size = 0;
+
+void addIP(uint32_t ip)
 {
-    struct ip_blocker* ip_blocker = rte_malloc("IP BLOCKER", sizeof(struct ip_blocker), 0);
+    if (ip_list_size == ip_list_capacity)
+    {
+        ip_list_capacity = ip_list_capacity ? ip_list_capacity * 2 : LIST_CHUNK;
+        ip_list = (uint32_t *) realloc (ip_list, ip_list_capacity * sizeof(uint32_t));
+    }
+
+    ip_list[ip_list_size] = ip;
+    ip_list_size++;
+}
+//End of aux TAD dynamic vector
+
+
+//Headers for private functions
+void
+addHardwareRules(uint32_t *, uint32_t);
+
+void
+addSoftwareRules(struct banned_ips *, uint32_t *, uint32_t);
+
+
+//Implementation of module methods
+struct banned_ips* createIPBlocker(const char *table_name, const char *pool_name)
+{
+    struct banned_ips* ip_blocker = rte_malloc("IP BLOCKER", sizeof(struct banned_ips), 0);
 
     if (ip_blocker == NULL)
         rte_exit(EXIT_FAILURE, "No se puede reservar memoria para la tabla de conexiones\n");
@@ -29,12 +64,12 @@ struct ip_blocker* createIPBlocker(const char *table_name, const char *pool_name
         .key_len = sizeof(uint32_t)
     };
     
-    ip_blocker->banned_ips = rte_hash_create(&ip_hash_params);
+    ip_blocker->hash_list = rte_hash_create(&ip_hash_params);
 
-    if (ip_blocker ->banned_ips == NULL)
+    if (ip_blocker ->hash_list == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear la tabla hash\n");
 
-    ip_blocker->banned_ip_data = rte_mempool_create(
+    ip_blocker->stats_pool = rte_mempool_create(
         pool_name,
         MAX_IPS,
         sizeof(struct blocked_ip_info),
@@ -46,42 +81,48 @@ struct ip_blocker* createIPBlocker(const char *table_name, const char *pool_name
         0
     );
     
-    if (ip_blocker->banned_ip_data == NULL)
-        rte_exit(EXIT_FAILURE, "No se puede crear el flow pool: %s\n", strerror(rte_errno));
+    if (ip_blocker->stats_pool == NULL)
+        rte_exit(EXIT_FAILURE, "No se puede crear el stats pool: %s\n", rte_strerror(rte_errno));
+
+    return ip_blocker;
 }
 
 
 
-void destroyIPBlocker(struct ip_blocker *);
+void destroyIPBlocker(struct banned_ips *);
 
 
 
-void registerIPs(struct ip_blocker *banned_ip_list, const char *ip_filename)
+void registerIPs(struct banned_ips *blocker,
+                    uint32_t hw_list_max_size,
+                    const char *ip_filename,
+                    uint8_t hw_filter_supported)
 {
     FILE *ip_file = fopen(ip_filename, "r");
     char buffer[MAX_STRING_LENGTH];
-    int32_t bin_ip;
+    uint32_t bin_ip;
+    int n_ips = 0;
 
+    //Obtengo IPs y las añado a la lista
+    printf("Abriendo %s\n", ip_filename);
     if (ip_file != NULL)
     {
         char *ip_string;
-        int i = 1;
-        while (!feof(ip_file))
+
+        while ((fgets(buffer, MAX_STRING_LENGTH, ip_file) != NULL))
         {
-            if (fgets(buffer, MAX_STRING_LENGTH, ip_file) != NULL)
+            ip_string = strtok(buffer, "\n");   //Limpio la cadena
+
+            if (ip_string != NULL)
             {
-                ip_string = strtok(buffer, "\n");   //Limpio la cadena
                 if (inet_pton(AF_INET, ip_string, &bin_ip) == 1)
-                {
-                    int ret = rte_hash_add_key(banned_ip_list, &bin_ip);
-                    if (ret < 0)
-                        printf("Error insertando IP %s (%u) en la lista\n", buffer, bin_ip);
-                }
+                    addIP(bin_ip);
+                
                 else
-                    printf("Error en la línea %d: %s\n", i, ip_string);      
+                   printf("Error en la línea %d: %s\n", n_ips+1, ip_string);      
             }
 
-            i++;
+            n_ips++;
         }
 
         fclose(ip_file);
@@ -89,23 +130,54 @@ void registerIPs(struct ip_blocker *banned_ip_list, const char *ip_filename)
     
     else
         printf("Error abriendo el fichero de IPs\n");
+
+    //Separo HW IPs y SW IPs
+    uint32_t hw_list_size = 0;
+    uint32_t *hw_ip_list = NULL;
+
+    if (hw_filter_supported)
+    {
+        hw_list_size = ip_list_size < hw_list_max_size ? ip_list_size : hw_list_max_size;
+        
+        if (hw_list_max_size != 0)
+        {
+            hw_ip_list = (uint32_t *) malloc (sizeof(uint32_t) * hw_list_size);
+            memcpy(hw_ip_list, ip_list, hw_list_size * sizeof(uint32_t));
+
+        }
+    }
+
+    uint32_t sw_list_size = ip_list_size < hw_list_max_size ? 0 : ip_list_size - hw_list_max_size;
+    uint32_t *sw_ip_list = sw_list_size == 0 ? NULL : (uint32_t *) malloc (sizeof(uint32_t) * sw_list_size);
+
+    if (sw_ip_list != NULL)
+        memcpy(sw_ip_list, &ip_list[hw_list_size], sw_list_size * sizeof(uint32_t));
+
+    if (hw_filter_supported)
+        addHardwareRules(hw_ip_list, hw_list_size);
+    addSoftwareRules(blocker, sw_ip_list, sw_list_size);
 }
 
 
 
-void blacklist(struct ip_blocker* banned_list, struct rte_mbuf **raw_batch, struct rte_mbuf **clean_batch, int burst_size)
+uint16_t blacklist(struct banned_ips* blocker,
+                    struct rte_mbuf **raw_batch,
+                    struct rte_mbuf **clean_batch,
+                    int burst_size)
 {
     struct rte_mbuf *pkt;
-    uint16_t offset;
+    struct blocked_ip_info *data;
+    uint16_t offset, eth_type;
+    uint16_t next_clean_pkt = 0;
     uint32_t ip;
-    int next_clean_pkt = 0;
+    int ret;
 
     for (int i = 0; i < burst_size; i++)
     {
         offset = sizeof(struct rte_ether_hdr);
         pkt = raw_batch[i];
 
-        uint16_t eth_type = rte_be_to_cpu_16(rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *)->ether_type);
+        eth_type = rte_be_to_cpu_16(rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *)->ether_type);
 
         while (eth_type == RTE_ETHER_TYPE_VLAN || eth_type == RTE_ETHER_TYPE_QINQ)
         {
@@ -117,10 +189,11 @@ void blacklist(struct ip_blocker* banned_list, struct rte_mbuf **raw_batch, stru
         {
             ip = rte_pktmbuf_mtod_offset(pkt, struct rte_ipv4_hdr *, offset)->dst_addr;
 
-            int32_t ret = rte_hash_lookup(banned_list, (const void *) &ip);
-            if (ret > 0)
+            ret = rte_hash_lookup_data(blocker->hash_list, (const void *) &ip, (void **) &data);
+            if (ret >= 0)
             {
-                //recopilar estadísticas
+                data->n_pkts++;
+                data->timestamp = rte_rdtsc();
             }
 
             else if (ret == -EINVAL)
@@ -130,6 +203,7 @@ void blacklist(struct ip_blocker* banned_list, struct rte_mbuf **raw_batch, stru
             {
                 clean_batch[next_clean_pkt] = pkt;
                 next_clean_pkt++;
+                raw_batch[i] = NULL;
             }
 
             else
@@ -137,6 +211,65 @@ void blacklist(struct ip_blocker* banned_list, struct rte_mbuf **raw_batch, stru
         }
 
         else
+        {
             printf("No es un paquete IPv4 (ethertype: %u)\n", eth_type);
+
+            clean_batch[next_clean_pkt] = pkt;
+            next_clean_pkt++;
+            raw_batch[i] = NULL;
+        }
     }
+    
+    return next_clean_pkt;
+}
+
+
+void
+addHardwareRules(uint32_t *hw_ip_list, uint32_t hw_list_size)
+{
+    if (hw_ip_list != NULL)
+    {
+
+        struct rte_flow_error *error = calloc(1, sizeof(struct rte_flow_error));
+
+        snippet_ipv4_block_configure(hw_ip_list, hw_list_size);
+        snippet_init_ipv4_block();
+        
+        if (generate_flow_skeleton((int)INCOME_PORT, error, (int)USE_TEMPLATE_API) == NULL)
+           fprintf(stderr, "Failed to allocate block_flows array\n");
+    }
+
+    else
+        printf("La lista de filtrado hardware es nula\n");
+}
+
+
+void
+addSoftwareRules(struct banned_ips *blocker, uint32_t *sw_ip_list, uint32_t sw_list_size)
+{
+    if (sw_ip_list != NULL)
+    {
+        struct blocked_ip_info *ip_stats;    
+        
+        for (int i = 0; i < sw_list_size; i++)
+        {
+            if (rte_mempool_get(blocker->stats_pool, (void **)&ip_stats) < 0)
+                printf("IP stats pool saturado temporalmente\n");
+            
+            else
+            {
+                ip_stats->n_pkts = 0;
+                ip_stats->timestamp = rte_rdtsc();
+                
+                int ret = rte_hash_add_key_data(blocker->hash_list, &sw_ip_list[i], ip_stats);
+                
+                if (ret < 0)
+                   printf("Error insertando IP %u en la lista hash\n", sw_ip_list[i]);
+            }
+        }
+    }
+
+    else
+        printf("%s\n", ip_list_size ? "Todas las IP pueden bloquearse por hardware :)"
+            :"No se está bloqueando ninguna IP...");
 }

@@ -57,7 +57,7 @@ static const struct rte_eth_conf port_conf_default = {
 
 /* Inicializa un puerto ethernet */
 static inline int
-first_portit(uint16_t port, struct rte_mempool *mbuf_pool)
+init_port(uint16_t port, struct rte_mempool *mbuf_pool)
 {
     struct rte_eth_conf port_conf = port_conf_default;
     const uint16_t rx_rings = 1, tx_rings = 1;
@@ -353,10 +353,10 @@ main(int argc, char **argv)
     connections = initConnectionTable("flow_hash_table", "flow_pool");
 
     /* Inicializa los primeros 2 puertos */
-    if (first_portit(0, mbuf_pool) != 0)
+    if (init_port(0, mbuf_pool) != 0)
         rte_exit(EXIT_FAILURE, "No se puede inicializar el puerto 0\n");
 
-    if (first_portit(1, mbuf_pool) != 0)
+    if (init_port(1, mbuf_pool) != 0)
         rte_exit(EXIT_FAILURE, "No se puede inicializar el puerto 1\n");
 
     /* Verifica que tengamos al menos un lcore disponible */

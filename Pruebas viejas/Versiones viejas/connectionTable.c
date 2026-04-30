@@ -43,7 +43,7 @@ struct conn_table* initConnectionTable(const char *table_name, const char *pool_
     );
     
     if (connections->flow_pool == NULL)
-        rte_exit(EXIT_FAILURE, "No se puede crear el flow pool: %s\n", strerror(rte_errno));
+        rte_exit(EXIT_FAILURE, "No se puede crear el flow pool: %s\n", rte_strerror(rte_errno));
 
     connections->first_connection = NULL;
     connections->last_connection = NULL;

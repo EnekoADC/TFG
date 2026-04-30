@@ -1,4 +1,10 @@
+#ifndef EAD_IPBLOCKER_H
+#define EAD_IPBLOCKER_H
+
 #include <stdint.h>
+#include <rte_mbuf.h>
+#include <rte_hash.h>
+#include <rte_mempool.h>
 
 #define MAX_IPS 9999
 
@@ -8,13 +14,15 @@ struct blocked_ip_info
     uint32_t n_pkts;
 };
 
-struct ip_blocker
+struct banned_ips
 {
-    struct rte_hash *banned_ips;
-    struct rte_mempool *banned_ip_data;
+    struct rte_hash *hash_list;
+    struct rte_mempool *stats_pool;
 };
 
-struct ip_blocker* createIPBlocker(const char *, const char *);
-void destroyIPBlocker(struct ip_blocker *);
-void registerIPs(struct ip_blocker *, const char *);
-void blacklist(struct ip_blocker *, struct rte_mbuf **, struct rte_mbuf **, int);
+struct banned_ips* createIPBlocker(const char *, const char *);
+void destroyIPBlocker(struct banned_ips *);
+void registerIPs(struct banned_ips *, uint32_t, const char *, uint8_t);
+uint16_t blacklist(struct banned_ips *, struct rte_mbuf **, struct rte_mbuf **, int);
+
+#endif
