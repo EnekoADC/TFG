@@ -34,9 +34,11 @@ $(FLOW_SK_OBJ): modules/flow_skeleton.c modules/common.h
 	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c modules/flow_skeleton.c -o $@
 
+
 $(SNIPPET_OBJ): modules/snippets/$(SNIPPET).c modules/snippets/$(SNIPPET).h
 	@mkdir -p $(OBJDIR)/snippets
 	$(CC) $(CFLAGS) -c modules/snippets/$(SNIPPET).c -o $@
+
 
 $(IP_BLOCK_OBJ): modules/ipBlocker.c modules/ipBlocker.h
 	@mkdir -p $(OBJDIR)
