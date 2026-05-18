@@ -21,11 +21,11 @@
 
 #include "modules/ipBlocker.h"
 
-#define RX_RING_SIZE 1024
-#define TX_RING_SIZE 1024
+#define RX_RING_SIZE 4096
+#define TX_RING_SIZE 4096
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
-#define BURST_SIZE 32
+#define BURST_SIZE 256
 #define MAX_QUEUE_SIZE 256
 
 /* rte_flow_flush: para limpiar las reglas instaladas
@@ -92,14 +92,14 @@ init_port(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t *hw_list_size_o
     /* Ethernet port configured with default settings. */
 	struct rte_eth_conf port_conf = {
 		.txmode = {
-			.offloads =
-				RTE_ETH_TX_OFFLOAD_VLAN_INSERT |
-				RTE_ETH_TX_OFFLOAD_IPV4_CKSUM  |
-				RTE_ETH_TX_OFFLOAD_UDP_CKSUM   |
-				RTE_ETH_TX_OFFLOAD_TCP_CKSUM   |
-				RTE_ETH_TX_OFFLOAD_SCTP_CKSUM  |
-				RTE_ETH_TX_OFFLOAD_TCP_TSO,
-		},
+			.offloads =0
+				// RTE_ETH_TX_OFFLOAD_VLAN_INSERT |
+				// RTE_ETH_TX_OFFLOAD_IPV4_CKSUM  |
+				// // RTE_ETH_TX_OFFLOAD_UDP_CKSUM   |
+				// RTE_ETH_TX_OFFLOAD_TCP_CKSUM   |
+				// RTE_ETH_TX_OFFLOAD_SCTP_CKSUM  |
+				// RTE_ETH_TX_OFFLOAD_TCP_TSO,
+		}
 	};
 
     struct rte_eth_txconf txconf;
@@ -185,7 +185,7 @@ init_port(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t *hw_list_size_o
         printf(":: Port %d: rte_flow no soportado por NIC :(\n", port);
         if (hw_list_size_out != NULL)
             *hw_list_size_out = 0;
-            
+
         return 0;
     }
 
@@ -209,6 +209,8 @@ init_port(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t *hw_list_size_o
 		rte_exit(EXIT_FAILURE,
 			"rte_eth_dev_start:err=%d, port=%u\n",
 			retval, port);
+  
+
 	/*  End of adding rules engine configuration. */
 
     // /* Muestra la dirección MAC del puerto */
@@ -249,6 +251,19 @@ read_send(uint16_t rx_port, uint16_t tx_port, struct banned_ips *banned_ips)
             for (i = nb_tx; i < clean_pkts; i++)
                 rte_pktmbuf_free(approved[i]);
         }
+
+        
+        /* Envía los paquetes por el puerto de salida */
+        // nb_tx = rte_eth_tx_burst(tx_port, 0, bufs, nb_rx);
+
+        // printf("ENVIADOS %d PAQUETES\n", nb_tx);
+
+        // /* Libera los paquetes que no se pudieron enviar */
+        // if (unlikely(nb_tx < nb_rx))
+        // {
+        //     for (i = nb_tx; i < nb_rx; i++)
+        //         rte_pktmbuf_free(bufs[i]);      //BUFS[I] ANTES ERA APPROVED[I]
+        // }
     }
 
     for (i = 0; i < nb_rx; i++)
@@ -280,6 +295,8 @@ l2fwd_main_loop(uint16_t *ports, struct banned_ips *banned_ips)
     }
 
     printf("\nSaliendo del loop de forwarding...\n");
+
+    dumpStats(banned_ips);
 }
 
 int

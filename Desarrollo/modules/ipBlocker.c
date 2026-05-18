@@ -223,6 +223,40 @@ uint16_t blacklist(struct banned_ips* blocker,
     return next_clean_pkt;
 }
 
+void dumpStats(struct banned_ips *blocker)
+{
+    //Iteration variables
+    const void *key;
+    void *data;
+    uint32_t iter = 0;
+
+    //Time conversion variables
+    uint64_t hz = rte_get_tsc_hz();
+    uint64_t now, ms_ago;
+
+    printf("\nBLOCKED INFO:\n");
+    while (rte_hash_iterate(blocker->hash_list, &key, &data, &iter) >= 0)
+    {
+        const struct blocked_ip_info *ip_info = data;
+        const uint32_t *id = key;
+
+        char ip_str[INET_ADDRSTRLEN];
+        
+        if (inet_ntop(AF_INET, id, ip_str, INET_ADDRSTRLEN) == NULL)
+        {
+            printf("ERROR converting IP into string format (%d)", *id);
+            strcpy(ip_str, "CONV_ERROR");
+        }
+
+        now = rte_rdtsc();
+        ms_ago = (now - ip_info->timestamp) * 1000 / hz;
+
+        printf("IP address: %s; %d packets, last accessed %ld ms ago\n", ip_str, ip_info->n_pkts, ip_info->timestamp);
+    }
+
+    printf("\n\n");
+}
+
 
 void
 addHardwareRules(uint32_t *hw_ip_list, uint32_t hw_list_size)

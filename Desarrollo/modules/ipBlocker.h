@@ -24,5 +24,6 @@ struct banned_ips* createIPBlocker(const char *, const char *);
 void destroyIPBlocker(struct banned_ips *);
 void registerIPs(struct banned_ips *, uint32_t, const char *, uint8_t);
 uint16_t blacklist(struct banned_ips *, struct rte_mbuf **, struct rte_mbuf **, int);
+void dumpStats(struct banned_ips *);
 
 #endif
