@@ -92,13 +92,13 @@ init_port(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t *hw_list_size_o
     /* Ethernet port configured with default settings. */
 	struct rte_eth_conf port_conf = {
 		.txmode = {
-			.offloads =0
-				// RTE_ETH_TX_OFFLOAD_VLAN_INSERT |
-				// RTE_ETH_TX_OFFLOAD_IPV4_CKSUM  |
-				// // RTE_ETH_TX_OFFLOAD_UDP_CKSUM   |
-				// RTE_ETH_TX_OFFLOAD_TCP_CKSUM   |
-				// RTE_ETH_TX_OFFLOAD_SCTP_CKSUM  |
-				// RTE_ETH_TX_OFFLOAD_TCP_TSO,
+			.offloads =
+				RTE_ETH_TX_OFFLOAD_VLAN_INSERT |
+				RTE_ETH_TX_OFFLOAD_IPV4_CKSUM  |
+				RTE_ETH_TX_OFFLOAD_UDP_CKSUM   |
+				RTE_ETH_TX_OFFLOAD_TCP_CKSUM   |
+				RTE_ETH_TX_OFFLOAD_SCTP_CKSUM  |
+				RTE_ETH_TX_OFFLOAD_TCP_TSO,
 		}
 	};
 
@@ -188,6 +188,11 @@ init_port(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t *hw_list_size_o
 
         return 0;
     }
+
+
+    printf("Realmente soporta bloqueo hardware. Bypasseado para las pruebas.\n");
+return 0;
+
 
     uint32_t hw_list_max_size = 0.8 * port_info.max_nb_counters;
 
