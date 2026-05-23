@@ -322,12 +322,38 @@ main(int argc, char **argv)
     argc -= ret;
     argv += ret;
     
-    /* Inicializo el bloqueador software */
-    blocker = createIPBlocker("hash_ip_blocker", "pool_ip_blocker"); 
+    /* Preparo ficheros de entrada/salida */
+    const char *ip_filename;
+    int out_fd;
 
-    /* Leo el fichero de IPs */
-    const char *ip_filename = *(++argv) == NULL ? "banned" : *argv;
+    switch(argc)
+    {
+        case 3:
+            ip_filename = argv[1];
+            out_fd = open(argv[2], O_WRONLY|O_CREAT|O_TRUNC, 00444);
+            printf("Entrada: %s\nSalida: %s\n\n", ip_filename, argv[2]);
+            break;
+
+        case 2:
+            ip_filename = argv[1];
+            out_fd = 0;
+            printf("Entrada: %s\nSalida: stdio\n\n", ip_filename);
+            break;
+
+        case 1:
+            ip_filename = "banned";
+            out_fd = 0;
+            printf("Entrada por defecto: banned\nSalida por defecto: stdio\n\n");
+            break;
+
+        default:
+            printf("Error parseando argumentos\n\n");
+            break;
+    }
     
+    /* Inicializo el bloqueador software */
+    blocker = createIPBlocker("hash_ip_blocker", "pool_ip_blocker", out_fd); 
+
     /* Registrar manejadores de señales */
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);

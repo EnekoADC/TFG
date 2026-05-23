@@ -50,7 +50,7 @@ addSoftwareRules(struct banned_ips *, uint32_t *, uint32_t);
 
 
 //Implementation of module methods
-struct banned_ips* createIPBlocker(const char *table_name, const char *pool_name)
+struct banned_ips* createIPBlocker(const char *table_name, const char *pool_name, int output_fd)
 {
     struct banned_ips* ip_blocker = rte_malloc("IP BLOCKER", sizeof(struct banned_ips), 0);
 
@@ -83,6 +83,8 @@ struct banned_ips* createIPBlocker(const char *table_name, const char *pool_name
     
     if (ip_blocker->stats_pool == NULL)
         rte_exit(EXIT_FAILURE, "No se puede crear el stats pool: %s\n", rte_strerror(rte_errno));
+
+    ip_blocker->output_fd = output_fd;
 
     return ip_blocker;
 }
@@ -232,9 +234,10 @@ void dumpStats(struct banned_ips *blocker)
 
     //Time conversion variables
     uint64_t hz = rte_get_tsc_hz();
-    uint64_t now, ms_ago;
+    uint64_t now, s_ago;
 
-    printf("\nBLOCKED INFO:\n");
+    printf("\nIniciando volcado de resultados\n");
+    dprintf(blocker->output_fd, "\nBLOCKED INFO:\n");
     while (rte_hash_iterate(blocker->hash_list, &key, &data, &iter) >= 0)
     {
         const struct blocked_ip_info *ip_info = data;
@@ -244,17 +247,18 @@ void dumpStats(struct banned_ips *blocker)
         
         if (inet_ntop(AF_INET, id, ip_str, INET_ADDRSTRLEN) == NULL)
         {
-            printf("ERROR converting IP into string format (%d)", *id);
+            dprintf(blocker->output_fd, "ERROR converting IP into string format (%d)", *id);
             strcpy(ip_str, "CONV_ERROR");
         }
 
         now = rte_rdtsc();
-        ms_ago = (now - ip_info->timestamp) * 1000 / hz;
+        s_ago = (now - ip_info->timestamp) / hz;
 
-        printf("IP address: %s; %d packets, last accessed %ld ms ago\n", ip_str, ip_info->n_pkts, ip_info->timestamp);
+        dprintf(blocker->output_fd, "IP address: %s; %d packets, last accessed %ld s ago\n", ip_str, ip_info->n_pkts, s_ago);
     }
 
-    printf("\n\n");
+    dprintf(blocker->output_fd, "\n\n");
+    printf("Fin del volcado de resultados\n\n");
 }
 
 
