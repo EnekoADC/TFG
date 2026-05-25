@@ -5,6 +5,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <sys/inotify.h>
+#include <limits.h>
 
 #include <rte_eal.h>
 #include <rte_ethdev.h>
@@ -27,10 +30,6 @@
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 256
 #define MAX_QUEUE_SIZE 256
-
-/* rte_flow_flush: para limpiar las reglas instaladas
-    configure_port_template para integrar la configuración rte_flow
-     */
 
 /* Variable global para controlar la terminación */
 static volatile bool force_quit = false;
@@ -189,11 +188,6 @@ init_port(uint16_t port, struct rte_mempool *mbuf_pool, uint32_t *hw_list_size_o
         return 0;
     }
 
-
-    printf("Realmente soporta bloqueo hardware. Bypasseado para las pruebas.\n");
-return 0;
-
-
     uint32_t hw_list_max_size = 0.8 * port_info.max_nb_counters;
 
     if (hw_list_size_out != NULL)
@@ -256,19 +250,6 @@ read_send(uint16_t rx_port, uint16_t tx_port, struct banned_ips *banned_ips)
             for (i = nb_tx; i < clean_pkts; i++)
                 rte_pktmbuf_free(approved[i]);
         }
-
-        
-        /* Envía los paquetes por el puerto de salida */
-        // nb_tx = rte_eth_tx_burst(tx_port, 0, bufs, nb_rx);
-
-        // printf("ENVIADOS %d PAQUETES\n", nb_tx);
-
-        // /* Libera los paquetes que no se pudieron enviar */
-        // if (unlikely(nb_tx < nb_rx))
-        // {
-        //     for (i = nb_tx; i < nb_rx; i++)
-        //         rte_pktmbuf_free(bufs[i]);      //BUFS[I] ANTES ERA APPROVED[I]
-        // }
     }
 
     for (i = 0; i < nb_rx; i++)
@@ -276,7 +257,6 @@ read_send(uint16_t rx_port, uint16_t tx_port, struct banned_ips *banned_ips)
         if (bufs[i] != NULL)
             rte_pktmbuf_free(bufs[i]);
     }
-    
 }
 
 
@@ -303,6 +283,81 @@ l2fwd_main_loop(uint16_t *ports, struct banned_ips *banned_ips)
 
     dumpStats(banned_ips);
 }
+
+
+//Watcher thread to update IPs dinamically
+typedef struct {
+    struct banned_ips *blocker;
+    const char        *ip_filename;
+    uint32_t           hw_list_max_size;
+    uint8_t            hw_filter_supported;
+} watcher_args_t;
+ 
+static void *
+file_watcher_thread(void *arg)
+{
+    watcher_args_t *w = (watcher_args_t *)arg;
+ 
+    int ifd = inotify_init1(IN_NONBLOCK);
+    if (ifd < 0) {
+        perror("inotify_init1");
+        return NULL;
+    }
+ 
+    /*
+     * IN_CLOSE_WRITE: el fichero fue abierto para escritura y luego cerrado.
+     * IN_MOVED_TO:    un fichero fue renombrado a esta ruta (comportamiento
+     *                 habitual de editores y de "mv tmp banned").
+     */
+    int wfd = inotify_add_watch(ifd, w->ip_filename, IN_CLOSE_WRITE | IN_MOVED_TO);
+    if (wfd < 0) {
+        perror("inotify_add_watch");
+        close(ifd);
+        return NULL;
+    }
+ 
+    /* Buffer alineado para los eventos de inotify */
+    char buf[sizeof(struct inotify_event) + NAME_MAX + 1]
+        __attribute__((aligned(__alignof__(struct inotify_event))));
+ 
+    printf("[watcher] Vigilando %s\n", w->ip_filename);
+ 
+    while (!force_quit)
+    {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(ifd, &fds);
+        struct timeval tv = {1, 0};     /* timeout 1 s para comprobar force_quit */
+ 
+        int ready = select(ifd + 1, &fds, NULL, NULL, &tv);
+ 
+        if (ready < 0) {
+            if (errno == EINTR) continue;   /* señal recibida, reintenta */
+            perror("select");
+            break;
+        }
+ 
+        if (ready == 0)
+            continue;   /* timeout, vuelve a comprobar force_quit */
+ 
+        /* Consume todos los eventos pendientes en el buffer */
+        ssize_t len = read(ifd, buf, sizeof(buf));
+        if (len <= 0)
+            continue;
+ 
+        printf("[watcher] Cambio detectado en %s, recargando IPs...\n",
+               w->ip_filename);
+ 
+        reloadIPs(w->blocker, w->ip_filename);
+    }
+ 
+    inotify_rm_watch(ifd, wfd);
+    close(ifd);
+    printf("[watcher] Hilo terminado.\n");
+
+    return NULL;
+}
+
 
 int
 main(int argc, char **argv)
@@ -336,18 +391,18 @@ main(int argc, char **argv)
 
         case 2:
             ip_filename = argv[1];
-            out_fd = 0;
+            out_fd = 1;
             printf("Entrada: %s\nSalida: stdio\n\n", ip_filename);
             break;
 
         case 1:
             ip_filename = "banned";
-            out_fd = 0;
+            out_fd = 1;
             printf("Entrada por defecto: banned\nSalida por defecto: stdio\n\n");
             break;
 
         default:
-            printf("Error parseando argumentos\n\n");
+            rte_exit(EXIT_FAILURE, "Error parseando argumentos\n\n");
             break;
     }
     
@@ -383,20 +438,35 @@ main(int argc, char **argv)
     if (rte_lcore_count() > 1)
         printf("\nWARNING: Demasiados lcores habilitados. Solo se usa 1.\n");
 
+    pthread_t watcher_tid;
+    watcher_args_t watcher_args = {
+        .blocker             = blocker,
+        .ip_filename         = ip_filename
+    };
+ 
+    if (pthread_create(&watcher_tid, NULL, file_watcher_thread, &watcher_args) != 0)
+        rte_exit(EXIT_FAILURE, "No se pudo crear el hilo watcher\n");
+
     /* Llama al loop principal en el lcore principal */
     l2fwd_main_loop(ports, blocker);
+
+    pthread_join(watcher_tid, NULL);
 
     printf("\n==== Iniciando limpieza ====\n");
 
     /* Limpia y termina */
     RTE_ETH_FOREACH_DEV(portid) {
         printf("Cerrando puerto %d...", portid);
+        rte_flow_flush(portid, NULL);
+
         ret = rte_eth_dev_stop(portid);
         if (ret != 0)
             printf("rte_eth_dev_stop: err=%d, port=%d\n", ret, portid);
         rte_eth_dev_close(portid);
         printf(" Hecho\n");
     }
+
+    destroyIPBlocker(blocker);
 
     /* Limpia el EAL */
     rte_eal_cleanup();
